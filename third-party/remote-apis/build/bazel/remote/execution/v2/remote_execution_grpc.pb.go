@@ -604,12 +604,14 @@ var ActionCache_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ContentAddressableStorage_FindMissingBlobs_FullMethodName = "/build.bazel.remote.execution.v2.ContentAddressableStorage/FindMissingBlobs"
-	ContentAddressableStorage_BatchUpdateBlobs_FullMethodName = "/build.bazel.remote.execution.v2.ContentAddressableStorage/BatchUpdateBlobs"
-	ContentAddressableStorage_BatchReadBlobs_FullMethodName   = "/build.bazel.remote.execution.v2.ContentAddressableStorage/BatchReadBlobs"
-	ContentAddressableStorage_GetTree_FullMethodName          = "/build.bazel.remote.execution.v2.ContentAddressableStorage/GetTree"
-	ContentAddressableStorage_SplitBlob_FullMethodName        = "/build.bazel.remote.execution.v2.ContentAddressableStorage/SplitBlob"
-	ContentAddressableStorage_SpliceBlob_FullMethodName       = "/build.bazel.remote.execution.v2.ContentAddressableStorage/SpliceBlob"
+	ContentAddressableStorage_FindMissingBlobs_FullMethodName     = "/build.bazel.remote.execution.v2.ContentAddressableStorage/FindMissingBlobs"
+	ContentAddressableStorage_BatchUpdateBlobs_FullMethodName     = "/build.bazel.remote.execution.v2.ContentAddressableStorage/BatchUpdateBlobs"
+	ContentAddressableStorage_BatchReadBlobs_FullMethodName       = "/build.bazel.remote.execution.v2.ContentAddressableStorage/BatchReadBlobs"
+	ContentAddressableStorage_GetTree_FullMethodName              = "/build.bazel.remote.execution.v2.ContentAddressableStorage/GetTree"
+	ContentAddressableStorage_SplitBlob_FullMethodName            = "/build.bazel.remote.execution.v2.ContentAddressableStorage/SplitBlob"
+	ContentAddressableStorage_GetChunkMapping_FullMethodName      = "/build.bazel.remote.execution.v2.ContentAddressableStorage/GetChunkMapping"
+	ContentAddressableStorage_SpliceBlob_FullMethodName           = "/build.bazel.remote.execution.v2.ContentAddressableStorage/SpliceBlob"
+	ContentAddressableStorage_RegisterChunkMapping_FullMethodName = "/build.bazel.remote.execution.v2.ContentAddressableStorage/RegisterChunkMapping"
 )
 
 // ContentAddressableStorageClient is the client API for ContentAddressableStorage service.
@@ -849,7 +851,13 @@ type ContentAddressableStorageClient interface {
 	//
 	// * `NOT_FOUND`: The requested tree root is not present in the CAS.
 	GetTree(ctx context.Context, in *GetTreeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetTreeResponse], error)
-	// SplitBlob retrieves information about how a blob is split into chunks.
+	// SplitBlob is the deprecated unary version of
+	// [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping].
+	// See that RPC for details.
+	//
+	// New in v2.12 and removed in v2.13.
+	SplitBlob(ctx context.Context, in *SplitBlobRequest, opts ...grpc.CallOption) (*SplitBlobResponse, error)
+	// GetChunkMapping retrieves the ordered chunk-digest mapping for a blob.
 	//
 	// This call returns information about how a blob is split into chunks, and
 	// returns a list of the chunk digests. Using the returned list of chunk digests,
@@ -880,11 +888,26 @@ type ContentAddressableStorageClient interface {
 	// Clients SHOULD verify that the digest of the blob assembled by the fetched
 	// chunks is equal to the requested blob digest.
 	//
+	// The list of chunk digests is streamed across response messages
+	// to avoid exceeding protocol message size limits. The complete list of
+	// chunks is the concatenation of `chunk_digests` across all responses in
+	// stream order. The server indicates that there are no more chunks by closing
+	// the response stream.
+	//
+	// The maximum message size is not negotiated by this API. Servers SHOULD limit
+	// the number of chunk digests in each response to remain below the maximum
+	// message size accepted by the client/server pair.
+	//
+	// Starting in RE API v2.13, servers that set
+	// [CacheCapabilities.split_blob_support][build.bazel.remote.execution.v2.CacheCapabilities.split_blob_support]
+	// MUST implement this RPC. Clients MUST check that the server supports this
+	// capability and supports RE API v2.13 or newer before using this RPC.
+	//
 	// The lifetimes of the generated chunk blobs MAY be independent of the
 	// lifetime of the original blob. In particular:
 	//   - A blob and any chunk derived from it MAY be evicted from the CAS at
 	//     different times.
-	//   - A call to [SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	//   - A call to [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	//     extends the lifetime of the original blob, and sets the lifetimes of
 	//     the resulting chunks (or extends the lifetimes of already-existing
 	//     chunks).
@@ -905,18 +928,53 @@ type ContentAddressableStorageClient interface {
 	//     reconstruct the blob is missing from the CAS.
 	//   - `RESOURCE_EXHAUSTED`: There is insufficient disk quota to store the blob
 	//     chunks.
-	SplitBlob(ctx context.Context, in *SplitBlobRequest, opts ...grpc.CallOption) (*SplitBlobResponse, error)
-	// SpliceBlob tells the CAS how chunks can compose a blob.
+	GetChunkMapping(ctx context.Context, in *GetChunkMappingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetChunkMappingResponse], error)
+	// SpliceBlob is the deprecated unary version of
+	// [RegisterChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.RegisterChunkMapping].
+	// See that RPC for details.
+	//
+	// New in v2.12 and removed in v2.13.
+	SpliceBlob(ctx context.Context, in *SpliceBlobRequest, opts ...grpc.CallOption) (*SpliceBlobResponse, error)
+	// RegisterChunkMapping registers an ordered chunk-digest mapping for a blob.
 	//
 	// This is the complementary operation to the
-	// [ContentAddressableStorage.SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	// [ContentAddressableStorage.GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	// function to handle the chunked upload of large blobs to save upload
 	// traffic.
 	//
 	// When uploading a large blob using chunked upload, clients MUST first upload
-	// all chunks to the CAS, then call this RPC to tell the server how those chunks
-	// compose the original blob. The chunks referenced in the SpliceBlob call SHOULD be
-	// available in the CAS before calling this RPC.
+	// all chunks to the CAS, then call this RPC to tell the server how those
+	// chunks compose the original blob. The chunks referenced in the
+	// RegisterChunkMapping call SHOULD be available in the CAS before calling this
+	// RPC.
+	//
+	// One example upload workflow is:
+	//  1. If the full blob digest is already available, the client can call
+	//     [ContentAddressableStorage.FindMissingBlobs][build.bazel.remote.execution.v2.ContentAddressableStorage.FindMissingBlobs]
+	//     to determine whether the blob is already present in the CAS, or
+	//     [ContentAddressableStorage.GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
+	//     to determine whether a chunk mapping already exists. This preliminary
+	//     lookup can be skipped, for example when computing the digest while
+	//     chunking is faster than a separate hashing pass.
+	//  2. If chunk upload is needed, compute the blob and chunk digests and call
+	//     `FindMissingBlobs` either once with the complete list or in batches as
+	//     digests become available, then upload the missing chunks. Clients SHOULD
+	//     avoid making a separate `FindMissingBlobs` call for each chunk.
+	//  3. After all chunks are available in the CAS, call this RPC and split the
+	//     complete ordered chunk digest list across request messages that remain
+	//     below the maximum message size accepted by the client/server pair.
+	//
+	// The list of chunk digests is streamed across request messages
+	// to avoid exceeding protocol message size limits. Clients MUST set the
+	// expected blob digest on the first request, then close the request stream to
+	// commit the splice. The server MUST use `instance_name`, `blob_digest`,
+	// `digest_function`, and `chunking_function` from the first request and ignore
+	// values for those fields on subsequent requests. Clients SHOULD omit those
+	// fields on subsequent requests.
+	//
+	// The maximum message size is not negotiated by this API. Clients SHOULD limit
+	// the number of chunk digests in each request to remain below the maximum
+	// message size accepted by the client/server pair.
 	//
 	// If a client needs to upload a large blob and is able to split a blob into
 	// chunks in such a way that reusable chunks are obtained, e.g., by means of
@@ -932,6 +990,11 @@ type ContentAddressableStorageClient interface {
 	//
 	// Clients MUST check that the server supports this capability, before using
 	// it.
+	//
+	// Starting in RE API v2.13, servers that set
+	// [CacheCapabilities.splice_blob_support][build.bazel.remote.execution.v2.CacheCapabilities.splice_blob_support]
+	// MUST implement this RPC. Clients MUST check that the server supports this
+	// capability and supports RE API v2.13 or newer before using this RPC.
 	//
 	// In order to ensure data consistency of the CAS, the server MUST only add
 	// blobs to the CAS after verifying their digests. In particular, servers MUST NOT
@@ -955,13 +1018,12 @@ type ContentAddressableStorageClient interface {
 	//   - `RESOURCE_EXHAUSTED`: There is insufficient disk quota to store the
 	//     spliced blob.
 	//   - `INVALID_ARGUMENT`: The digest of the spliced blob is different from the
-	//     provided expected digest.
-	//   - `ALREADY_EXISTS`: The blob already exists in CAS and the server did not
-	//     extend the lifetime of the chunks specified in the request, e.g. because
-	//     it prefers a different chunking and extended those instead. Clients can
-	//     call [SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	//     provided expected digest, OR the stream contains an invalid sequence of
+	//     splice requests.
+	//   - `ALREADY_EXISTS`: The blob already exists in CAS. Clients can
+	//     call [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	//     to check what chunk mapping the server is using.
-	SpliceBlob(ctx context.Context, in *SpliceBlobRequest, opts ...grpc.CallOption) (*SpliceBlobResponse, error)
+	RegisterChunkMapping(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RegisterChunkMappingRequest, RegisterChunkMappingResponse], error)
 }
 
 type contentAddressableStorageClient struct {
@@ -1031,6 +1093,25 @@ func (c *contentAddressableStorageClient) SplitBlob(ctx context.Context, in *Spl
 	return out, nil
 }
 
+func (c *contentAddressableStorageClient) GetChunkMapping(ctx context.Context, in *GetChunkMappingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetChunkMappingResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ContentAddressableStorage_ServiceDesc.Streams[1], ContentAddressableStorage_GetChunkMapping_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetChunkMappingRequest, GetChunkMappingResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ContentAddressableStorage_GetChunkMappingClient = grpc.ServerStreamingClient[GetChunkMappingResponse]
+
 func (c *contentAddressableStorageClient) SpliceBlob(ctx context.Context, in *SpliceBlobRequest, opts ...grpc.CallOption) (*SpliceBlobResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SpliceBlobResponse)
@@ -1040,6 +1121,19 @@ func (c *contentAddressableStorageClient) SpliceBlob(ctx context.Context, in *Sp
 	}
 	return out, nil
 }
+
+func (c *contentAddressableStorageClient) RegisterChunkMapping(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RegisterChunkMappingRequest, RegisterChunkMappingResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ContentAddressableStorage_ServiceDesc.Streams[2], ContentAddressableStorage_RegisterChunkMapping_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[RegisterChunkMappingRequest, RegisterChunkMappingResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ContentAddressableStorage_RegisterChunkMappingClient = grpc.ClientStreamingClient[RegisterChunkMappingRequest, RegisterChunkMappingResponse]
 
 // ContentAddressableStorageServer is the server API for ContentAddressableStorage service.
 // All implementations should embed UnimplementedContentAddressableStorageServer
@@ -1278,7 +1372,13 @@ type ContentAddressableStorageServer interface {
 	//
 	// * `NOT_FOUND`: The requested tree root is not present in the CAS.
 	GetTree(*GetTreeRequest, grpc.ServerStreamingServer[GetTreeResponse]) error
-	// SplitBlob retrieves information about how a blob is split into chunks.
+	// SplitBlob is the deprecated unary version of
+	// [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping].
+	// See that RPC for details.
+	//
+	// New in v2.12 and removed in v2.13.
+	SplitBlob(context.Context, *SplitBlobRequest) (*SplitBlobResponse, error)
+	// GetChunkMapping retrieves the ordered chunk-digest mapping for a blob.
 	//
 	// This call returns information about how a blob is split into chunks, and
 	// returns a list of the chunk digests. Using the returned list of chunk digests,
@@ -1309,11 +1409,26 @@ type ContentAddressableStorageServer interface {
 	// Clients SHOULD verify that the digest of the blob assembled by the fetched
 	// chunks is equal to the requested blob digest.
 	//
+	// The list of chunk digests is streamed across response messages
+	// to avoid exceeding protocol message size limits. The complete list of
+	// chunks is the concatenation of `chunk_digests` across all responses in
+	// stream order. The server indicates that there are no more chunks by closing
+	// the response stream.
+	//
+	// The maximum message size is not negotiated by this API. Servers SHOULD limit
+	// the number of chunk digests in each response to remain below the maximum
+	// message size accepted by the client/server pair.
+	//
+	// Starting in RE API v2.13, servers that set
+	// [CacheCapabilities.split_blob_support][build.bazel.remote.execution.v2.CacheCapabilities.split_blob_support]
+	// MUST implement this RPC. Clients MUST check that the server supports this
+	// capability and supports RE API v2.13 or newer before using this RPC.
+	//
 	// The lifetimes of the generated chunk blobs MAY be independent of the
 	// lifetime of the original blob. In particular:
 	//   - A blob and any chunk derived from it MAY be evicted from the CAS at
 	//     different times.
-	//   - A call to [SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	//   - A call to [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	//     extends the lifetime of the original blob, and sets the lifetimes of
 	//     the resulting chunks (or extends the lifetimes of already-existing
 	//     chunks).
@@ -1334,18 +1449,53 @@ type ContentAddressableStorageServer interface {
 	//     reconstruct the blob is missing from the CAS.
 	//   - `RESOURCE_EXHAUSTED`: There is insufficient disk quota to store the blob
 	//     chunks.
-	SplitBlob(context.Context, *SplitBlobRequest) (*SplitBlobResponse, error)
-	// SpliceBlob tells the CAS how chunks can compose a blob.
+	GetChunkMapping(*GetChunkMappingRequest, grpc.ServerStreamingServer[GetChunkMappingResponse]) error
+	// SpliceBlob is the deprecated unary version of
+	// [RegisterChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.RegisterChunkMapping].
+	// See that RPC for details.
+	//
+	// New in v2.12 and removed in v2.13.
+	SpliceBlob(context.Context, *SpliceBlobRequest) (*SpliceBlobResponse, error)
+	// RegisterChunkMapping registers an ordered chunk-digest mapping for a blob.
 	//
 	// This is the complementary operation to the
-	// [ContentAddressableStorage.SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	// [ContentAddressableStorage.GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	// function to handle the chunked upload of large blobs to save upload
 	// traffic.
 	//
 	// When uploading a large blob using chunked upload, clients MUST first upload
-	// all chunks to the CAS, then call this RPC to tell the server how those chunks
-	// compose the original blob. The chunks referenced in the SpliceBlob call SHOULD be
-	// available in the CAS before calling this RPC.
+	// all chunks to the CAS, then call this RPC to tell the server how those
+	// chunks compose the original blob. The chunks referenced in the
+	// RegisterChunkMapping call SHOULD be available in the CAS before calling this
+	// RPC.
+	//
+	// One example upload workflow is:
+	//  1. If the full blob digest is already available, the client can call
+	//     [ContentAddressableStorage.FindMissingBlobs][build.bazel.remote.execution.v2.ContentAddressableStorage.FindMissingBlobs]
+	//     to determine whether the blob is already present in the CAS, or
+	//     [ContentAddressableStorage.GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
+	//     to determine whether a chunk mapping already exists. This preliminary
+	//     lookup can be skipped, for example when computing the digest while
+	//     chunking is faster than a separate hashing pass.
+	//  2. If chunk upload is needed, compute the blob and chunk digests and call
+	//     `FindMissingBlobs` either once with the complete list or in batches as
+	//     digests become available, then upload the missing chunks. Clients SHOULD
+	//     avoid making a separate `FindMissingBlobs` call for each chunk.
+	//  3. After all chunks are available in the CAS, call this RPC and split the
+	//     complete ordered chunk digest list across request messages that remain
+	//     below the maximum message size accepted by the client/server pair.
+	//
+	// The list of chunk digests is streamed across request messages
+	// to avoid exceeding protocol message size limits. Clients MUST set the
+	// expected blob digest on the first request, then close the request stream to
+	// commit the splice. The server MUST use `instance_name`, `blob_digest`,
+	// `digest_function`, and `chunking_function` from the first request and ignore
+	// values for those fields on subsequent requests. Clients SHOULD omit those
+	// fields on subsequent requests.
+	//
+	// The maximum message size is not negotiated by this API. Clients SHOULD limit
+	// the number of chunk digests in each request to remain below the maximum
+	// message size accepted by the client/server pair.
 	//
 	// If a client needs to upload a large blob and is able to split a blob into
 	// chunks in such a way that reusable chunks are obtained, e.g., by means of
@@ -1361,6 +1511,11 @@ type ContentAddressableStorageServer interface {
 	//
 	// Clients MUST check that the server supports this capability, before using
 	// it.
+	//
+	// Starting in RE API v2.13, servers that set
+	// [CacheCapabilities.splice_blob_support][build.bazel.remote.execution.v2.CacheCapabilities.splice_blob_support]
+	// MUST implement this RPC. Clients MUST check that the server supports this
+	// capability and supports RE API v2.13 or newer before using this RPC.
 	//
 	// In order to ensure data consistency of the CAS, the server MUST only add
 	// blobs to the CAS after verifying their digests. In particular, servers MUST NOT
@@ -1384,13 +1539,12 @@ type ContentAddressableStorageServer interface {
 	//   - `RESOURCE_EXHAUSTED`: There is insufficient disk quota to store the
 	//     spliced blob.
 	//   - `INVALID_ARGUMENT`: The digest of the spliced blob is different from the
-	//     provided expected digest.
-	//   - `ALREADY_EXISTS`: The blob already exists in CAS and the server did not
-	//     extend the lifetime of the chunks specified in the request, e.g. because
-	//     it prefers a different chunking and extended those instead. Clients can
-	//     call [SplitBlob][build.bazel.remote.execution.v2.ContentAddressableStorage.SplitBlob]
+	//     provided expected digest, OR the stream contains an invalid sequence of
+	//     splice requests.
+	//   - `ALREADY_EXISTS`: The blob already exists in CAS. Clients can
+	//     call [GetChunkMapping][build.bazel.remote.execution.v2.ContentAddressableStorage.GetChunkMapping]
 	//     to check what chunk mapping the server is using.
-	SpliceBlob(context.Context, *SpliceBlobRequest) (*SpliceBlobResponse, error)
+	RegisterChunkMapping(grpc.ClientStreamingServer[RegisterChunkMappingRequest, RegisterChunkMappingResponse]) error
 }
 
 // UnimplementedContentAddressableStorageServer should be embedded to have
@@ -1415,8 +1569,14 @@ func (UnimplementedContentAddressableStorageServer) GetTree(*GetTreeRequest, grp
 func (UnimplementedContentAddressableStorageServer) SplitBlob(context.Context, *SplitBlobRequest) (*SplitBlobResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SplitBlob not implemented")
 }
+func (UnimplementedContentAddressableStorageServer) GetChunkMapping(*GetChunkMappingRequest, grpc.ServerStreamingServer[GetChunkMappingResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method GetChunkMapping not implemented")
+}
 func (UnimplementedContentAddressableStorageServer) SpliceBlob(context.Context, *SpliceBlobRequest) (*SpliceBlobResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SpliceBlob not implemented")
+}
+func (UnimplementedContentAddressableStorageServer) RegisterChunkMapping(grpc.ClientStreamingServer[RegisterChunkMappingRequest, RegisterChunkMappingResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterChunkMapping not implemented")
 }
 func (UnimplementedContentAddressableStorageServer) testEmbeddedByValue() {}
 
@@ -1521,6 +1681,17 @@ func _ContentAddressableStorage_SplitBlob_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContentAddressableStorage_GetChunkMapping_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetChunkMappingRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ContentAddressableStorageServer).GetChunkMapping(m, &grpc.GenericServerStream[GetChunkMappingRequest, GetChunkMappingResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ContentAddressableStorage_GetChunkMappingServer = grpc.ServerStreamingServer[GetChunkMappingResponse]
+
 func _ContentAddressableStorage_SpliceBlob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SpliceBlobRequest)
 	if err := dec(in); err != nil {
@@ -1538,6 +1709,13 @@ func _ContentAddressableStorage_SpliceBlob_Handler(srv interface{}, ctx context.
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _ContentAddressableStorage_RegisterChunkMapping_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ContentAddressableStorageServer).RegisterChunkMapping(&grpc.GenericServerStream[RegisterChunkMappingRequest, RegisterChunkMappingResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ContentAddressableStorage_RegisterChunkMappingServer = grpc.ClientStreamingServer[RegisterChunkMappingRequest, RegisterChunkMappingResponse]
 
 // ContentAddressableStorage_ServiceDesc is the grpc.ServiceDesc for ContentAddressableStorage service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -1572,6 +1750,16 @@ var ContentAddressableStorage_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "GetTree",
 			Handler:       _ContentAddressableStorage_GetTree_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetChunkMapping",
+			Handler:       _ContentAddressableStorage_GetChunkMapping_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "RegisterChunkMapping",
+			Handler:       _ContentAddressableStorage_RegisterChunkMapping_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "build/bazel/remote/execution/v2/remote_execution.proto",

@@ -1,0 +1,55 @@
+name: third-party
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  mapping:
+    name: josh mapping (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: buck2
+            url: https://github.com/facebook/buck2
+            branch: main
+    env:
+      NAME: ${{ matrix.name }}
+      URL: ${{ matrix.url }}
+      BRANCH: ${{ matrix.branch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Fetch upstream through the mapping
+        run: |
+          nix develop --command josh remote add "$NAME" "$URL" "$(cat "third-party/$NAME.josh")" --no-forge
+          nix develop --command josh fetch -r "$NAME"
+
+      - name: The mapping is reversible
+        run: |
+          upstream=$(git rev-parse "refs/josh/remotes/$NAME/$BRANCH")
+          mapped=$(git rev-parse "refs/remotes/$NAME/$BRANCH")
+          inverse=":invert[$(grep -v '^ *#' "third-party/$NAME.josh")]"
+          inverted=$(nix develop --command josh-filter "$inverse" "$mapped" --update refs/josh/check)
+          echo "upstream $upstream, inverse of mapped $mapped is $inverted"
+          test "$inverted" = "$upstream"
+
+      # Old upstream commits that predate the paths a mapping moves map to the
+      # same hashes under any mapping, so sharing some history proves nothing.
+      # The upstream side of the latest import has to be in the mapped history.
+      - name: The latest import was made with this mapping
+        run: |
+          # Match the subject only: the merge commit that lands an import pull
+          # request repeats the import's title in its body.
+          import=$(git log --merges --format='%H%x09%s' HEAD |
+            awk -F '\t' -v prefix="third-party/$NAME: import upstream" 'index($2, prefix) == 1 { print $1; exit }')
+          echo "latest import $import merged ${import:+$(git rev-parse "$import^2")}"
+          test -n "$import"
+          git merge-base --is-ancestor "$import^2" "refs/remotes/$NAME/$BRANCH"

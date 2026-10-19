@@ -535,6 +535,112 @@ def _setup_link_extraction(ctx: AnalysisContext, compile_ctx: CompileContext, su
         out_archive = out_archive,
     )
 
+# Command interpreting the root crate under Miri, for `[miri]` test runs and
+# `buck2 run`. Built like `generate_rustdoc_test`: the root crate's ordinary
+# compile args, wrapped in `rustc_action` like the doctest command.
+# Whatever the native compile gets (`--cfg`s, `-C` flags, lints) the
+# interpreted one gets too, so the two cannot diverge.
+def miri_command(
+    ctx: AnalysisContext,
+    compile_ctx: CompileContext,
+    params: BuildParams,
+    default_roots: list[str],
+    extra_flags: list[str | ResolvedStringWithMacros | Artifact],
+    # Env of the interpreted program; the driver process's env (`env!`)
+    # rides along as wrapper `--env`/`--path-env` below.
+    runtime_env: dict[str, str | ResolvedStringWithMacros | Artifact],
+    is_test: bool,
+) -> cmd_args:
+    toolchain_info = compile_ctx.toolchain_info
+    if toolchain_info.miri_driver == None:
+        fail("`miri_command` requires a toolchain with `miri_driver`")
+
+    common_args = _compute_common_args(
+        ctx = ctx,
+        compile_ctx = compile_ctx,
+        dep_ctx = compile_ctx.dep_ctx,
+        emit = Emit("miri"),
+        params = params,
+        default_roots = default_roots,
+        infallible_diagnostics = False,
+        incremental_enabled = False,
+        is_rustdoc_test = False,
+        is_miri_run = True,
+        profile_mode = None,
+    )
+
+    # Compile-time env processed like normal rustc actions, so `env!` matches.
+    # The wrapper sets it on the driver process, absolutizing paths.
+    plain_env, path_env = process_env(compile_ctx, toolchain_info.rustc_env | ctx.attrs.env)
+    if toolchain_info.nightly_features and "RUSTC_BOOTSTRAP" not in plain_env:
+        plain_env["RUSTC_BOOTSTRAP"] = cmd_args("1")
+    if toolchain_info.rust_target_path != None:
+        path_env["RUST_TARGET_PATH"] = toolchain_info.rust_target_path[DefaultInfo].default_outputs[0]
+
+    internal_tools_info = compile_ctx.internal_tools_info
+
+    # Never written, but the driver validates `-o` like rustc: without it the
+    # output would be `<crate name>` in the cwd, which may be an existing
+    # directory.
+    miri_out = ctx.actions.write(ctx.actions.declare_output("__miri_out"), [""])
+
+    miri_cmd = cmd_args(
+        [cmd_args("--env=", k, "=", v, delimiter = "") for (k, v) in plain_env.items()],
+        [cmd_args("--path-env=", k, "=", v, delimiter = "") for (k, v) in path_env.items()],
+        # Rendered diagnostics stream straight to stderr, unparsed.
+        "--passthrough-stderr",
+        # Driver plus its flags, kept raw: expansion applies only after
+        # `--rustc-action-separator`, so literal `$(...)` survives.
+        toolchain_info.miri_driver,
+        toolchain_info.miri_flags,
+        # Miri flags, most-specific-last so the invocation wins on conflicts:
+        # toolchain defaults, target `miri_flags`, `-c rust.extra_miri_flags`.
+        ctx.attrs.miri_flags,
+        toolchain_info.extra_miri_flags,
+        # The driver's environment is compile time (`env!`); the interpreted
+        # program's comes through Miri.
+        [cmd_args("-Zmiri-env-set=", k, "=", v, delimiter = "") for (k, v) in runtime_env.items()],
+        "--rustc-action-separator",
+        # Same order as `rust_compile`: lints first so later args override.
+        _lint_flags(compile_ctx, infallible_diagnostics = False, is_clippy = False),
+        common_args.args,
+        "-o",
+        miri_out,
+        cmd_args(
+            "--remap-path-prefix=",
+            compile_ctx.symlinked_srcs,
+            compile_ctx.path_sep,
+            "=",
+            compile_ctx.symlinked_srcs.owner.path,
+            compile_ctx.path_sep,
+            delimiter = "",
+        ),
+        ["-Zremap-cwd-prefix=."] if toolchain_info.nightly_features else [],
+        extra_flags,
+        # Last, where `miri`-kind library compiles put them.
+        toolchain_info.miri_rustc_flags,
+    )
+
+    # With an abort runtime, `-Zpanic-abort-tests` makes libtest spawn a
+    # subprocess per test, which the interpreter cannot. Force in-process
+    # runs from the program tail: in the driver prefix Miri/rustc would
+    # consume the flag instead of libtest.
+    program_args = []
+    if is_test and toolchain_info.panic_runtime == PanicRuntime("abort"):
+        program_args = ["--force-run-in-process"]
+
+    wrapped_command = _long_command(
+        ctx = ctx,
+        exe = internal_tools_info.rustc_action,
+        args = miri_cmd,
+        argfile_name = "{}.args".format(common_args.subdir),
+        has_content_based_path = getattr(ctx.attrs, "use_content_based_paths", False),
+    )
+
+    # The boundary stays outside the response file (`_long_command` always
+    # writes one); baked program arguments precede the caller's.
+    return cmd_args(wrapped_command, "--program-args", program_args)
+
 # Generate a compilation action. A single instance of rustc can emit
 # numerous output artifacts, so return an artifact object for each of
 # them.
@@ -567,6 +673,8 @@ def rust_compile(
     if not toolchain_info.nightly_features:
         if emit == Emit("expand"):
             fail("Expansion uses the unstable `-Zunpretty` flag and requires a toolchain with `nightly_features = True`")
+        if emit == Emit("miri"):
+            fail("Miri uses unstable `-Z` flags and requires a toolchain with `nightly_features = True`")
         if profile_mode in (ProfileMode("llvm-time-trace"), ProfileMode("self-profile")):
             fail("`{}` profiling uses unstable `-Z` flags and requires a toolchain with `nightly_features = True`".format(profile_mode.value))
 
@@ -626,7 +734,18 @@ def rust_compile(
         extra_flags,
     )
 
-    rustc_bin = compile_ctx.clippy_wrapper if emit == Emit("clippy") else toolchain_info.compiler
+    if emit == Emit("clippy"):
+        rustc_bin = compile_ctx.clippy_wrapper
+    elif emit == Emit("miri"):
+        # The driver running as rustc (`MIRI_BE_RUSTC=target`, set below)
+        # prepends the flags its own version needs baked into dependency MIR
+        # (`-Zmir-opt-level=0`, `-Zmir-preserve-ub`, ...), so toolchains cannot
+        # drift from the interpreter by hand-copying that list.
+        if toolchain_info.miri_driver == None:
+            fail('`Emit("miri")` requires a toolchain with `miri_driver`')
+        rustc_bin = toolchain_info.miri_driver
+    else:
+        rustc_bin = toolchain_info.compiler
 
     # If we're using failure filtering then we need to make sure the final
     # artifact location is the predeclared one since its specific path may have
@@ -675,6 +794,9 @@ def rust_compile(
                 has_content_based_path = use_cbp,
             )
             emit_op.env["CLIPPY_CONF_DIR"] = clippy_conf_dir
+
+    if emit == Emit("miri"):
+        emit_op.env["MIRI_BE_RUSTC"] = "target"
 
     split_debug_mode = compile_ctx.cxx_toolchain_info.split_debug_mode or SplitDebugMode("none")
     has_split_debug = split_debug_mode != SplitDebugMode("none")
@@ -978,7 +1100,18 @@ def dependency_args(
         else:
             strategy = strategy_info(toolchain_info, dep.info, dep_link_strategy)
 
-            artifact = strategy.outputs[dep_metadata_kind]
+            # A metadata kind is absent when its artifact wasn't built. Only the
+            # `miri` kind can be absent (toolchains without a Miri driver publish
+            # none); fail loudly with the owner instead of emitting a dangling
+            # `--extern` or a later compiler error. (Direct proc-macro deps take
+            # the `dylib` branch above, so they never reach this lookup.)
+            artifact = strategy.outputs.get(dep_metadata_kind)
+            if artifact == None:
+                fail(
+                    "dependency `{}` was analyzed without a `{}` artifact (toolchain `{}`): `miri`-kind compiles need every dependency built by a toolchain with `miri_driver`".format(
+                        dep.label, dep_metadata_kind.value, toolchain_info.rustc_target_triple or "unknown"
+                    )
+                )
             singleton_tset = strategy.singleton_tset[dep_metadata_kind]
             transitive_artifacts = strategy.transitive_deps[dep_metadata_kind]
 
@@ -1160,6 +1293,7 @@ def _abbreviated_subdir(
     dep_link_strategy: LinkStrategy,
     emit: Emit,
     is_rustdoc_test: bool,
+    is_miri_run: bool,
     infallible_diagnostics: bool,
     incremental_enabled: bool,
     profile_mode: ProfileMode | None,
@@ -1202,6 +1336,7 @@ def _abbreviated_subdir(
         Emit("mir"): "m",
         Emit("expand"): "e",
         Emit("clippy"): "c",
+        Emit("miri"): "U",  # "Undefined behavior"
         Emit("metadata-full"): "F",  # "Full metadata"
         Emit("metadata-fast"): "M",  # "Metadata"
     }[emit]
@@ -1219,6 +1354,7 @@ def _abbreviated_subdir(
         + dep_link_strategy
         + emit
         + ("T" if is_rustdoc_test else "")
+        + ("R" if is_miri_run else "")
         + ("D" if infallible_diagnostics else "")
         + ("I" if incremental_enabled else "")
         + profile_mode
@@ -1236,10 +1372,12 @@ def _compute_common_args(
     incremental_enabled: bool,
     is_rustdoc_test: bool,
     profile_mode: ProfileMode | None,
+    # The args feed `miri_command`, run at test time through `rustc_action.py`.
+    is_miri_run: bool = False,
 ) -> CommonArgsInfo:
     crate_type = params.crate_type
 
-    args_key = (crate_type, emit, params.dep_link_strategy, is_rustdoc_test, infallible_diagnostics, incremental_enabled, profile_mode)
+    args_key = (crate_type, emit, params.dep_link_strategy, is_rustdoc_test, is_miri_run, infallible_diagnostics, incremental_enabled, profile_mode)
     if args_key in compile_ctx.common_args:
         return compile_ctx.common_args[args_key]
 
@@ -1249,6 +1387,7 @@ def _compute_common_args(
         dep_link_strategy = params.dep_link_strategy,
         emit = emit,
         is_rustdoc_test = is_rustdoc_test,
+        is_miri_run = is_miri_run,
         infallible_diagnostics = infallible_diagnostics,
         incremental_enabled = incremental_enabled,
         profile_mode = profile_mode,
@@ -1405,8 +1544,9 @@ def _compute_common_args(
         "-Crelocation-model={}".format(params.reloc_model.value),
         "--edition={}".format(edition),
         "-Cmetadata={}".format(_metadata(compile_ctx, ctx.label, is_rustdoc_test)[0]),
-        # Make diagnostics json with the option to extract rendered text
-        ["--error-format=json", "--json=diagnostic-rendered-ansi"] if not is_rustdoc_test else [],
+        # JSON diagnostics are for `rustc_action.py`; commands run at test time
+        # print rendered text directly.
+        ["--error-format=json", "--json=diagnostic-rendered-ansi"] if not (is_rustdoc_test or is_miri_run) else [],
         prefer_dynamic_flags,
         ["--target={}".format(toolchain_info.rustc_target_triple)] if toolchain_info.rustc_target_triple else [],
         split_debuginfo_flags,
@@ -1546,6 +1686,16 @@ def _explain(
             LinkStrategy("shared"): " [shared]",
         }[link_strategy]
 
+    if emit == Emit("miri"):
+        base = (
+            "miri"
+            + {
+                LinkStrategy("static"): "",
+                LinkStrategy("static_pic"): " [pic]",
+                LinkStrategy("shared"): " [shared]",
+            }[link_strategy]
+        )
+
     if emit == Emit("link"):
         link_strategy_suffix = {
             LinkStrategy("static"): "",
@@ -1675,6 +1825,10 @@ def _rustc_emit(
             # rlibs are `--emit=link` products of the rlib crate type. For bin
             # crates there is additionally no output to bind: the extraction
             # wrapper set via `-Clinker=` captures the objects instead.
+            effective_emit = "link"
+        elif emit == Emit("miri"):
+            # Interpreted from the MIR in the rmeta; nothing runs natively.
+            emit_args.add("-Zno-codegen")
             effective_emit = "link"
         else:
             effective_emit = emit.value
@@ -1864,6 +2018,8 @@ def _rustc_invoke(
         identifier = ""
     else:
         category = "rustc"
+        if common_args.emit == Emit("miri"):
+            category = "miri"
         identifier = _explain(
             crate_type = common_args.crate_type,
             link_strategy = common_args.params.dep_link_strategy,

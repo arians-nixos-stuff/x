@@ -63,6 +63,7 @@ use buck2_execute::execute::blocking::BlockingExecutor;
 use buck2_execute::execute::blocking::BlockingExecutorFactory;
 use buck2_execute::materialize::materializer::FinalArtifactMaterialization;
 use buck2_execute::materialize::materializer::Materializer;
+use buck2_execute::re::client::init_induced_cache_misses;
 use buck2_execute::re::invocation_re_settings::invocation_re_use_case;
 use buck2_execute::re::manager::ReConnectionManager;
 use buck2_execute::re::ttl_refresh::ReChecker;
@@ -104,7 +105,6 @@ use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tracing::Instrument;
-use variant_name::VariantName;
 
 use crate::active_commands::ActiveCommandDropGuard;
 use crate::ctx::BaseServerCommandContext;
@@ -361,7 +361,7 @@ impl TenantState {
             }
         });
 
-        let digest_algorithms = init_ctx
+        let digest_algorithm_families = init_ctx
             .daemon_startup_config
             .digest_algorithms
             .as_ref()
@@ -373,7 +373,12 @@ impl TenantState {
             })
             .transpose()
             .buck_error_context("Invalid digest_algorithms")?
-            .unwrap_or_else(|| vec![default_digest_algorithm])
+            .unwrap_or_else(|| vec![default_digest_algorithm]);
+        let digest_algorithm_names = digest_algorithm_families
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let digest_algorithms = digest_algorithm_families
             .into_iter()
             .map(convert_algorithm_kind)
             .collect::<Result<Vec<_>, _>>()?;
@@ -388,10 +393,12 @@ impl TenantState {
 
         let digest_config = DigestConfig::leak_new(digest_algorithms, preferred_source_algorithm)
             .buck_error_context("Error initializing DigestConfig")?;
+        init_induced_cache_misses(digest_config.cas_digest_config())?;
 
         // TODO(rafaelc): merge configs from all cells once they are consistent
         let static_metadata = Arc::new(RemoteExecutionStaticMetadata::from_legacy_config(
             root_config,
+            digest_algorithm_names,
         )?);
 
         let mut ignore_specs: StdBuckHashMap<CellName, IgnoreSet> = StdBuckHashMap::default();
@@ -675,7 +682,6 @@ impl TenantState {
             });
 
         let tags = vec![
-            format!("dice-detect-cycles:{}", dice.detect_cycles().variant_name()),
             // TODO(scottcao): Delete this tag since now hash all commands is always enabled.
             "hash-all-commands:true".to_owned(),
             format!(
@@ -986,6 +992,46 @@ pub struct DaemonStateData {
     /// Counters of the TTL refresher that walks the file digest interner. The refresher itself
     /// is a task on the daemon's runtime and lives as long as it does.
     pub(crate) standalone_ttl_refresh: Arc<StandaloneTtlRefreshCounters>,
+}
+
+// SAFETY: `_assert_send_sync` requires every field to be `Send + Sync`. Spelled out
+// so that auto-trait proofs for command futures stop here; see `dice::DiceComputations`.
+unsafe impl Send for DaemonStateData {}
+unsafe impl Sync for DaemonStateData {}
+
+fn _assert_send_sync(
+    DaemonStateData {
+        tenants,
+        tenant_state_factory,
+        blocking_executor_factory,
+        forkserver,
+        scribe_sink,
+        start_time,
+        http_client,
+        spawner,
+        memory_tracker,
+        daemon_id,
+        daemon_originating_cgroup,
+        named_semaphores_for_run_actions,
+        package_visibility_default_intersection,
+        standalone_ttl_refresh,
+    }: &DaemonStateData,
+) {
+    fn assert<T: Send + Sync>(_: &T) {}
+    assert(tenants);
+    assert(tenant_state_factory);
+    assert(blocking_executor_factory);
+    assert(forkserver);
+    assert(scribe_sink);
+    assert(start_time);
+    assert(http_client);
+    assert(spawner);
+    assert(memory_tracker);
+    assert(daemon_id);
+    assert(daemon_originating_cgroup);
+    assert(named_semaphores_for_run_actions);
+    assert(package_visibility_default_intersection);
+    assert(standalone_ttl_refresh);
 }
 
 impl DaemonStateData {

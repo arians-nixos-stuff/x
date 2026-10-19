@@ -1926,6 +1926,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastcdc"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77af40d8a8dadb92dc178569a5f5edb5f3056e98255c2de48ab5d59a52892e0c"
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2352,8 +2358,7 @@ dependencies = [
 [[package]]
 name = "h2"
 version = "0.4.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118"
+source = "git+https://github.com/hyperium/h2?rev=e64c1662ebb14794fc19cbcbb5b5dd0f67925f27#e64c1662ebb14794fc19cbcbb5b5dd0f67925f27"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2605,9 +2610,8 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72"
+version = "1.12.0"
+source = "git+https://github.com/arianvp/hyper?rev=13ed56aef2f6a61eadf7011b5ebaeb12a076b368#13ed56aef2f6a61eadf7011b5ebaeb12a076b368"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -5303,6 +5307,7 @@ dependencies = [
  "erased-serde 0.4.10",
  "faccess",
  "fancy-regex 0.19.2",
+ "fastcdc",
  "fbinit",
  "flate2",
  "fnv",
@@ -6929,8 +6934,7 @@ checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 [[package]]
 name = "tonic"
 version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+source = "git+https://github.com/arianvp/tonic?rev=c9831346000aebd8b1d50b3ab0bffb42a6b5f616#c9831346000aebd8b1d50b3ab0bffb42a6b5f616"
 dependencies = [
  "async-trait",
  "axum",

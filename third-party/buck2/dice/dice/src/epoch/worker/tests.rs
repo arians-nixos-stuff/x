@@ -62,8 +62,6 @@ use crate::epoch::worker::testing::CheckDependenciesResultExt;
 use crate::key::DiceKey;
 use crate::key::ParentKey;
 use crate::updater::ChangeType;
-use crate::user_cycle::KeyComputingUserCycleDetectorData;
-use crate::user_cycle::UserCycleDetectorData;
 use crate::value::DiceValidity;
 use crate::value::TrackedInvalidationPaths;
 use crate::versions::VersionNumber;
@@ -156,19 +154,17 @@ impl Key for Finish {
 fn spawn_task(
     k: DiceKey,
     eval: TransactionData,
-    cycles: UserCycleDetectorData,
     previously_cancelled_task: Option<PreviouslyCancelledTask>,
 ) -> (DiceTask, DicePromise<'static>) {
     let prepared_task = DiceTask::prepare_testing(k);
     let task = prepared_task.task().clone_arc();
-    let promise =
-        DiceTaskWorker::new(k, eval).spawn(prepared_task, cycles, previously_cancelled_task);
+    let promise = DiceTaskWorker::new(k, eval).spawn(prepared_task, previously_cancelled_task);
     (task, promise)
 }
 
 #[tokio::test]
 async fn test_detecting_changed_dependencies() -> anyhow::Result<()> {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
     let root = dice.new_root().await;
 
     let user_data = Arc::new(UserComputationData::new());
@@ -200,7 +196,6 @@ async fn test_detecting_changed_dependencies() -> anyhow::Result<()> {
             &eval,
             ParentKey::None,
             &SeriesParallelDeps::serial_from_edges(vec![DepEdge::new(dep_key, Revision::FIRST)]),
-            &KeyComputingUserCycleDetectorData::Untracked,
         )
         .await
         .is_changed()
@@ -228,7 +223,6 @@ async fn test_detecting_changed_dependencies() -> anyhow::Result<()> {
                 dep_key,
                 Revision::testing_new(2),
             )]),
-            &KeyComputingUserCycleDetectorData::Untracked,
         )
         .await
         .is_changed()
@@ -239,7 +233,7 @@ async fn test_detecting_changed_dependencies() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn when_equal_return_same_instance() -> anyhow::Result<()> {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
     let root = dice.new_root().await;
 
     let user_data = Arc::new(UserComputationData::new());
@@ -305,13 +299,8 @@ async fn when_equal_return_same_instance() -> anyhow::Result<()> {
         dice: dice.dupe(),
     };
 
-    let (task, _initial_promise) = spawn_task(
-        key.dupe(),
-        eval.dupe(),
-        UserCycleDetectorData::testing_new(),
-        None,
-    );
-    let res = task.depended_on_by(ParentKey::None).unwrap().await;
+    let (task, _initial_promise) = spawn_task(key.dupe(), eval.dupe(), None);
+    let res = task.depended_on_by(ParentKey::None).unwrap().await?;
 
     let v = dice
         .state_handle
@@ -332,13 +321,8 @@ async fn when_equal_return_same_instance() -> anyhow::Result<()> {
         dice: dice.dupe(),
     };
 
-    let (task, _initial_promise) = spawn_task(
-        key.dupe(),
-        eval.dupe(),
-        UserCycleDetectorData::testing_new(),
-        None,
-    );
-    let res2 = task.depended_on_by(ParentKey::None).unwrap().await;
+    let (task, _initial_promise) = spawn_task(key.dupe(), eval.dupe(), None);
+    let res2 = task.depended_on_by(ParentKey::None).unwrap().await?;
 
     // verify that we incremented the total instance counter
     assert_eq!(instance.load(Ordering::SeqCst), 2);
@@ -364,7 +348,7 @@ async fn when_equal_return_same_instance() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn spawn_with_no_previously_cancelled_task() {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
 
     let (shared_ctx, _guard) = dice.testing_shared_ctx(VersionNumber::testing_new(1)).await;
 
@@ -377,19 +361,18 @@ async fn spawn_with_no_previously_cancelled_task() {
         user_data: extra.dupe(),
         dice: dice.dupe(),
     };
-    let cycles = UserCycleDetectorData::testing_new();
     let previously_cancelled_task = None;
 
-    let (task, _initial_promise) = spawn_task(k, eval, cycles, previously_cancelled_task);
+    let (task, _initial_promise) = spawn_task(k, eval, previously_cancelled_task);
 
-    task.depended_on_by(ParentKey::None).unwrap().await;
+    task.depended_on_by(ParentKey::None).unwrap().await.unwrap();
 
     assert!(is_ran.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
 async fn spawn_with_previously_cancelled_task_that_cancelled() {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
 
     let (shared_ctx, _guard) = dice.testing_shared_ctx(VersionNumber::testing_new(1)).await;
 
@@ -399,7 +382,6 @@ async fn spawn_with_previously_cancelled_task_that_cancelled() {
         user_data: extra.dupe(),
         dice: dice.dupe(),
     };
-    let cycles = UserCycleDetectorData::testing_new();
 
     #[derive(Allocative, Clone, Dupe, Debug, Display, PartialEq, Eq, Hash, Pagable)]
     #[pagable_typetag(DiceKeyDyn)]
@@ -427,7 +409,7 @@ async fn spawn_with_previously_cancelled_task_that_cancelled() {
     }
 
     let k = dice.key_index.index_key(CancellableNeverFinish);
-    let (previous_task, prev_task_promise) = spawn_task(k, eval.dupe(), cycles, None);
+    let (previous_task, prev_task_promise) = spawn_task(k, eval.dupe(), None);
 
     drop(prev_task_promise);
 
@@ -437,17 +419,16 @@ async fn spawn_with_previously_cancelled_task_that_cancelled() {
 
     let is_ran = Arc::new(AtomicBool::new(false));
     let k = dice.key_index.index_key(IsRan(is_ran.dupe()));
-    let cycles = UserCycleDetectorData::testing_new();
-    let (task, _initial_promise) = spawn_task(k, eval, cycles, previously_cancelled_task);
+    let (task, _initial_promise) = spawn_task(k, eval, previously_cancelled_task);
 
-    task.depended_on_by(ParentKey::None).unwrap().await;
+    task.depended_on_by(ParentKey::None).unwrap().await.unwrap();
 
     assert!(is_ran.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
 async fn spawn_with_previously_cancelled_task_that_finished() {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
 
     let (shared_ctx, _guard) = dice.testing_shared_ctx(VersionNumber::testing_new(1)).await;
 
@@ -457,7 +438,6 @@ async fn spawn_with_previously_cancelled_task_that_finished() {
         user_data: extra.dupe(),
         dice: dice.dupe(),
     };
-    let cycles = UserCycleDetectorData::testing_new();
 
     #[derive(Allocative, Clone, Dupe, Debug, Display, PartialEq, Eq, Hash, Pagable)]
     #[pagable_typetag(DiceKeyDyn)]
@@ -484,9 +464,13 @@ async fn spawn_with_previously_cancelled_task_that_finished() {
     }
 
     let k = dice.key_index.index_key(Finish);
-    let (previous_task, prev_task_promise) = spawn_task(k, eval.dupe(), cycles, None);
+    let (previous_task, prev_task_promise) = spawn_task(k, eval.dupe(), None);
     // wait for it to finish then trigger cancel
-    previous_task.depended_on_by(ParentKey::None).unwrap().await;
+    previous_task
+        .depended_on_by(ParentKey::None)
+        .unwrap()
+        .await
+        .unwrap();
     drop(prev_task_promise);
 
     let previously_cancelled_task = Some(PreviouslyCancelledTask::new(
@@ -495,10 +479,9 @@ async fn spawn_with_previously_cancelled_task_that_finished() {
 
     let is_ran = Arc::new(AtomicBool::new(false));
     let k = dice.key_index.index_key(IsRan(is_ran.dupe()));
-    let cycles = UserCycleDetectorData::testing_new();
-    let (task, _initial_promise) = spawn_task(k, eval, cycles, previously_cancelled_task);
+    let (task, _initial_promise) = spawn_task(k, eval, previously_cancelled_task);
 
-    task.depended_on_by(ParentKey::None).unwrap().await;
+    task.depended_on_by(ParentKey::None).unwrap().await.unwrap();
 
     // The previous generation finished (rather than actually cancelling), so `await_previous` reuses
     // its value instead of recomputing. The new key is therefore never evaluated — this is what
@@ -511,7 +494,7 @@ async fn spawn_with_previously_cancelled_task_that_finished() {
 /// A worker outliving the last transaction at its version still gets its result stored.
 #[tokio::test]
 async fn writes_after_the_last_transaction_is_dropped_are_accepted() {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
 
     let (shared_ctx, guard) = dice.testing_shared_ctx(VersionNumber::testing_new(1)).await;
 
@@ -521,13 +504,12 @@ async fn writes_after_the_last_transaction_is_dropped_are_accepted() {
         user_data: extra.dupe(),
         dice: dice.dupe(),
     };
-    let cycles = UserCycleDetectorData::testing_new();
 
     drop(guard);
 
     let k = dice.key_index.index_key(Finish);
-    let (task, _initial_promise) = spawn_task(k, eval.dupe(), cycles, None);
-    task.depended_on_by(ParentKey::None).unwrap().await;
+    let (task, _initial_promise) = spawn_task(k, eval.dupe(), None);
+    task.depended_on_by(ParentKey::None).unwrap().await.unwrap();
 }
 
 #[tokio::test]
@@ -601,7 +583,7 @@ async fn spawn_with_previously_cancelled_task_nested_cancelled() -> anyhow::Resu
         }
     }
 
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
 
     let exclusive = Arc::new(Mutex::new(false));
     let is_started = Arc::new(Notify::new());
@@ -623,17 +605,14 @@ async fn spawn_with_previously_cancelled_task_nested_cancelled() -> anyhow::Resu
         user_data: extra.dupe(),
         dice: dice.dupe(),
     };
-    let cycles = UserCycleDetectorData::testing_new();
 
-    let (first_task, first_task_promise) = spawn_task(k, eval.dupe(), cycles, None);
+    let (first_task, first_task_promise) = spawn_task(k, eval.dupe(), None);
     is_started.notified().await;
     drop(first_task_promise);
 
-    let cycles = UserCycleDetectorData::testing_new();
     let (second_task, second_task_promise) = spawn_task(
         k,
         eval.dupe(),
-        cycles,
         Some(PreviouslyCancelledTask::new(
             first_task.as_ref().await_termination(),
         )),
@@ -641,11 +620,9 @@ async fn spawn_with_previously_cancelled_task_nested_cancelled() -> anyhow::Resu
 
     drop(second_task_promise);
 
-    let cycles = UserCycleDetectorData::testing_new();
     let (third_task, _third_task_promise) = spawn_task(
         k,
         eval,
-        cycles,
         Some(PreviouslyCancelledTask::new(
             second_task.as_ref().await_termination(),
         )),
@@ -777,7 +754,7 @@ async fn test_values_gets_resurrect_if_deps_dont_change_regardless_of_equality()
 // short period and then check the total number of nodes that get computed.
 #[tokio::test]
 async fn test_check_dependencies_stops_at_changed() -> anyhow::Result<()> {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
     let root = dice.new_root().await;
 
     let compute_behavior = (0..20)
@@ -820,8 +797,7 @@ async fn test_check_dependencies_stops_at_changed() -> anyhow::Result<()> {
             .map(|k| DepEdge::new(*k, Revision::testing_new(2)))
             .collect(),
     );
-    let cycles = KeyComputingUserCycleDetectorData::Untracked;
-    let check_deps_result = check_dependencies(&eval, ParentKey::None, &deps, &cycles).await;
+    let check_deps_result = check_dependencies(&eval, ParentKey::None, &deps).await;
 
     match check_deps_result {
         CheckDependenciesResult::Changed { continuables } => {
@@ -863,7 +839,7 @@ async fn test_check_dependencies_stops_at_changed() -> anyhow::Result<()> {
 /// from check_dependencies.
 #[tokio::test]
 async fn test_check_dependencies_can_eagerly_check_all_parallel_deps() -> anyhow::Result<()> {
-    let dice = Dice::new(DiceData::new(), None);
+    let dice = Dice::testing_new(DiceData::new());
     let root = dice.new_root().await;
 
     let compute_behavior = (0..20)
@@ -947,9 +923,8 @@ async fn test_check_dependencies_can_eagerly_check_all_parallel_deps() -> anyhow
     record(&mut deps, keys[19]);
 
     let deps = deps.collect_deps().deps.certify();
-    let cycles = KeyComputingUserCycleDetectorData::Untracked;
 
-    let check_deps_result = check_dependencies(&eval, ParentKey::None, &deps, &cycles).await;
+    let check_deps_result = check_dependencies(&eval, ParentKey::None, &deps).await;
 
     match check_deps_result {
         CheckDependenciesResult::Changed { continuables } => {

@@ -48,6 +48,7 @@ BUCK2_TEST_FAIL_CONNECT                        bool                   false
 BUCK2_TEST_FAIL_PAGE_OUT                       bool                   false
 BUCK2_TEST_FAIL_RE_DOWNLOADS                   bool                   false
 BUCK2_TEST_FAIL_RE_EXECUTE                     bool                   false
+BUCK2_TEST_FAIL_RE_EXECUTE_MISSING_INPUTS_ONCE bool                   false
 BUCK2_TEST_FAIL_RE_RESOURCE_EXHAUSTED          bool                   false
 BUCK2_TEST_FAIL_STREAMING                      bool                   false
 BUCK2_TEST_FAKE_SYSTEM_TOTAL_MEMORY            u64
@@ -86,7 +87,6 @@ BUCK_WRAPPER_START_TIME                        u64
 CI                                             bool                   false
 CODING_AGENT_METADATA                          String
 COMPLETION_VERIFY_LOCKFILE                     String
-DICE_DETECT_CYCLES_UNSTABLE                    DetectCycles
 ENFORCE_DISPATCHER_SET                         bool                   false
 FORCE_WANT_RESTART                             bool                   false
 SANDCASTLE                                     String

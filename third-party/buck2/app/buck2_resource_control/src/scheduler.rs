@@ -224,6 +224,20 @@ pub(crate) struct Scheduler {
     next_scene_id: SceneId,
 }
 
+/// Closes the open suspension, if any, into the scene's counters.
+impl SuspendedScene {
+    fn record_suspension_end(&mut self, now: Instant) {
+        if let Some(suspend_start) = self.suspend_start.take() {
+            let suspend_elapsed = now - suspend_start;
+            self.scene.suspend_duration = Some(match self.scene.suspend_duration {
+                Some(duration) => duration + suspend_elapsed,
+                None => suspend_elapsed,
+            });
+            self.scene.suspend_count += 1;
+        }
+    }
+}
+
 impl Scheduler {
     pub(crate) fn init(
         resource_control_config: &ResourceControlConfig,
@@ -267,10 +281,13 @@ impl Scheduler {
         daemon_id: &DaemonId,
         now: Instant,
     ) -> Self {
-        let estimated_memory_cap = effective_resource_constraints
-            .memory_high
-            .or(effective_resource_constraints.memory_max)
-            .unwrap_or(system_memory_max);
+        let estimated_memory_cap = match (
+            effective_resource_constraints.memory_high,
+            effective_resource_constraints.memory_max,
+        ) {
+            (Some(high), Some(max)) => high.min(max),
+            (high, max) => high.or(max).unwrap_or(system_memory_max),
+        };
         let mut base_tags = Vec::new();
         if enable_suspension {
             base_tags.push("suspension:enabled".to_owned());
@@ -392,9 +409,10 @@ impl Scheduler {
             .iter()
             .position(|cg| cg.scene.scene_id == scene_id.as_ref())
         {
-            let cgroup = self.suspended_scenes.remove(i).unwrap();
+            let mut cgroup = self.suspended_scenes.remove(i).unwrap();
             // Command can finish after freezing a cgroup either because freezing may take some time
             // or because we started freezing after the command finished.
+            cgroup.record_suspension_end(now);
             SceneResult::from_info(&cgroup.scene)
         } else {
             unreachable!("Scene disappeared!")
@@ -619,16 +637,7 @@ impl Scheduler {
             return;
         };
 
-        if let Some(suspend_start) = suspended_cgroup.suspend_start {
-            let suspend_elapsed = now - suspend_start;
-
-            suspended_cgroup.scene.suspend_duration =
-                Some(match suspended_cgroup.scene.suspend_duration {
-                    Some(duration) => duration + suspend_elapsed,
-                    None => suspend_elapsed,
-                });
-            suspended_cgroup.scene.suspend_count += 1;
-        }
+        suspended_cgroup.record_suspension_end(now);
 
         let (running_cgroup, event_kind) =
             wake_scene(suspended_cgroup.scene, suspended_cgroup.wake_implementation);
@@ -778,6 +787,67 @@ mod tests {
         fn secs(&self, n: u64) -> Instant {
             self.0 + Duration::from_secs(n)
         }
+    }
+
+    /// A scene that finishes while it is suspended counts that suspension in its result like a scene
+    /// that was woken.
+    #[test]
+    fn test_scene_finished_while_suspended() {
+        let (mut scheduler, timeline) = TestTimeline::new();
+        let pressure = MemoryReading {
+            allprocs_memory_current: 10000,
+            allprocs_swap_current: 0,
+            allprocs_memory_pressure: 80.0,
+            daemon_memory_current: 8000,
+            daemon_swap_current: 0,
+            time_collected: SystemTime::now(),
+        };
+        scheduler.update(pressure, UpdateBuilder::new().build(), timeline.secs(0));
+        scheduler.update(pressure, UpdateBuilder::new().build(), timeline.secs(60));
+        let desc = || SceneDescription {
+            command_type: CommandType::Build,
+            action_digest: None,
+        };
+        let (scene1, mut start1) = scheduler.scene_started(desc(), false);
+        let (scene2, mut start2) = scheduler.scene_started(desc(), false);
+        let _kill1 = start1.0.try_recv().unwrap().0;
+        let mut kill2 = start2.0.try_recv().unwrap().0;
+        scheduler.update(
+            pressure,
+            UpdateBuilder::new()
+                .add(scene1.as_ref(), 2)
+                .add(scene2.as_ref(), 3)
+                .build(),
+            timeline.secs(100),
+        );
+        assert!(kill2.0.try_recv().is_ok(), "scene2 is suspended at t=100");
+        // The action had completed when the kill arrived; the executor reports it at t=110.
+        let res = scheduler.scene_finished(scene2, timeline.secs(110));
+        assert_eq!(res.suspend_count, 1);
+        assert_eq!(res.suspend_duration, Some(Duration::from_secs(10)));
+        scheduler.scene_finished(scene1, timeline.secs(120));
+    }
+
+    /// The initial memory cap is the smaller of the ancestor `memory.high` and `memory.max`.
+    #[test]
+    fn test_initial_cap_with_high_above_max() {
+        let now = Instant::now();
+        let scheduler = Scheduler::new(
+            true,
+            ExperimentalAlgoVariant::new(None),
+            ActionSuspendStrategy::KillAndRetry,
+            Box::new(InflatedCurrentPressureForecast),
+            Box::new(SpreadHalfSuspendTiming::new()),
+            EffectiveResourceConstraints {
+                memory_high: Some(32 << 30),
+                memory_max: Some(16 << 30),
+                ..Default::default()
+            },
+            64 << 30,
+            &DaemonId::new(),
+            now,
+        );
+        assert_eq!(scheduler.estimated_memory_cap, 16 << 30);
     }
 
     #[test]

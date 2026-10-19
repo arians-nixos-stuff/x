@@ -26,9 +26,30 @@ git_fetch(
 )
 
 git_fetch(
+    name = "h2-5c909413df829c34.git",
+    repo = "https://github.com/hyperium/h2",
+    rev = "e64c1662ebb14794fc19cbcbb5b5dd0f67925f27",
+    visibility = [],
+)
+
+git_fetch(
+    name = "hyper-dc5a3d0ee839cd00.git",
+    repo = "https://github.com/arianvp/hyper",
+    rev = "13ed56aef2f6a61eadf7011b5ebaeb12a076b368",
+    visibility = [],
+)
+
+git_fetch(
     name = "perf-event-7610c6bfd3fa18f3.git",
     repo = "https://github.com/Nero5023/perf-event.git",
     rev = "6dae86b6d4807acec081e6dc0a53167f57f8c0f4",
+    visibility = [],
+)
+
+git_fetch(
+    name = "tonic-1ca3615e24491855.git",
+    repo = "https://github.com/arianvp/tonic",
+    rev = "c9831346000aebd8b1d50b3ab0bffb42a6b5f616",
     visibility = [],
 )
 
@@ -7228,6 +7249,46 @@ third_party_rust_library(
     ],
 )
 
+third_party_rust_alias(
+    name = "fastcdc",
+    actual = ":fastcdc-4",
+    platforms = [
+        "linux-arm64",
+        "linux-x86_64",
+        "macos-arm64",
+        "macos-x86_64",
+        "windows-gnu",
+        "windows-msvc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "fastcdc-4.0.1.crate",
+    sha256 = "77af40d8a8dadb92dc178569a5f5edb5f3056e98255c2de48ab5d59a52892e0c",
+    strip_prefix = "fastcdc-4.0.1",
+    urls = ["https://static.crates.io/crates/fastcdc/4.0.1/download"],
+    visibility = [],
+)
+
+third_party_rust_library(
+    name = "fastcdc-4",
+    srcs = [":fastcdc-4.0.1.crate"],
+    crate = "fastcdc",
+    crate_root = "fastcdc-4.0.1.crate/src/lib.rs",
+    edition = "2024",
+    features = ["default"],
+    platform = {
+        "linux-arm64": dict(),
+        "linux-x86_64": dict(),
+        "macos-arm64": dict(),
+        "macos-x86_64": dict(),
+        "windows-gnu": dict(),
+        "windows-msvc": dict(),
+    },
+    visibility = [],
+)
+
 http_archive(
     name = "fastrand-2.5.0.crate",
     sha256 = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223",
@@ -8912,19 +8973,11 @@ third_party_rust_alias(
     visibility = ["PUBLIC"],
 )
 
-http_archive(
-    name = "h2-0.4.20.crate",
-    sha256 = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118",
-    strip_prefix = "h2-0.4.20",
-    urls = ["https://static.crates.io/crates/h2/0.4.20/download"],
-    visibility = [],
-)
-
 third_party_rust_library(
     name = "h2-0.4",
-    srcs = [":h2-0.4.20.crate"],
+    srcs = [":h2-5c909413df829c34.git"],
     crate = "h2",
-    crate_root = "h2-0.4.20.crate/src/lib.rs",
+    crate_root = "h2-5c909413df829c34/src/lib.rs",
     edition = "2021",
     platform = {
         "linux-arm64": dict(),
@@ -9821,19 +9874,11 @@ third_party_rust_alias(
     visibility = ["PUBLIC"],
 )
 
-http_archive(
-    name = "hyper-1.11.0.crate",
-    sha256 = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72",
-    strip_prefix = "hyper-1.11.0",
-    urls = ["https://static.crates.io/crates/hyper/1.11.0/download"],
-    visibility = [],
-)
-
 third_party_rust_library(
     name = "hyper-1",
-    srcs = [":hyper-1.11.0.crate"],
+    srcs = [":hyper-dc5a3d0ee839cd00.git"],
     crate = "hyper",
-    crate_root = "hyper-1.11.0.crate/src/lib.rs",
+    crate_root = "hyper-dc5a3d0ee839cd00/src/lib.rs",
     edition = "2021",
     features = [
         "client",
@@ -20489,6 +20534,7 @@ third_party_rust_binary(
         ":erased-serde-0.4",
         ":faccess-0.2",
         ":fancy-regex-0.19",
+        ":fastcdc-4",
         ":fbinit-0.2",
         ":flate2-1",
         ":fnv-1",
@@ -26205,29 +26251,21 @@ third_party_rust_alias(
     visibility = ["PUBLIC"],
 )
 
-http_archive(
-    name = "tonic-0.14.6.crate",
-    sha256 = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef",
-    strip_prefix = "tonic-0.14.6",
-    urls = ["https://static.crates.io/crates/tonic/0.14.6/download"],
-    visibility = [],
-)
-
 third_party_rust_library(
     name = "tonic-0.14",
-    srcs = [":tonic-0.14.6.crate"],
+    srcs = [":tonic-1ca3615e24491855.git"],
     crate = "tonic",
-    crate_root = "tonic-0.14.6.crate/src/lib.rs",
+    crate_root = "tonic-1ca3615e24491855/tonic/src/lib.rs",
     edition = "2024",
     env = {
         "CARGO_BIN_NAME": "tonic",
         "CARGO_CRATE_NAME": "tonic",
-        "CARGO_MANIFEST_DIR": "tonic-0.14.6.crate",
+        "CARGO_MANIFEST_DIR": "tonic-1ca3615e24491855",
         "CARGO_PKG_AUTHORS": "Lucio Franco <luciofranco14@gmail.com>",
         "CARGO_PKG_DESCRIPTION": "A gRPC over HTTP/2 implementation focused on high performance, interoperability, and flexibility.\n",
         "CARGO_PKG_HOMEPAGE": "https://github.com/hyperium/tonic",
         "CARGO_PKG_NAME": "tonic",
-        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_README": "../README.md",
         "CARGO_PKG_REPOSITORY": "https://github.com/hyperium/tonic",
         "CARGO_PKG_RUST_VERSION": "1.88",
         "CARGO_PKG_VERSION": "0.14.6",

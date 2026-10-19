@@ -1,0 +1,14 @@
+load(":defs.bzl", "remote_execution_platform")
+
+oncall("x")
+
+# Runs actions on actiond (https://github.com/hermeticbuild/actiond): a local
+# Remote Execution API worker that runs every action in an empty chroot inside
+# a small Linux VM. Only what an action declares as input exists there. See
+# README.md for how to use it.
+remote_execution_platform(
+    name = "actiond",
+    cpu_configuration = "prelude//cpu:arm64",
+    os_configuration = "prelude//os:linux",
+    visibility = ["PUBLIC"],
+)

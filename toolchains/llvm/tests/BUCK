@@ -1,0 +1,16 @@
+load(":defs.bzl", "run_binary")
+
+oncall("x")
+
+cxx_binary(
+    name = "hello",
+    srcs = ["hello.c"],
+)
+
+# Building this runs `hello` as an action. On actiond that is inside an empty
+# sandbox, so it only succeeds if the binary is fully static.
+run_binary(
+    name = "hello-runs",
+    binary = ":hello",
+    out = "greeting.txt",
+)

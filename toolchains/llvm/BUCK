@@ -1,0 +1,83 @@
+load(":archive.bzl", "hermetic_archive", "static_binary")
+load(":defs.bzl", "llvm_cxx_toolchain", "llvm_dist", "llvm_smoke_test", "target_runtimes")
+
+oncall("x")
+
+# Static bsdtar with zstd/gzip support: everything below unpacks with it.
+static_binary(
+    name = "bsdtar",
+    sha256 = "673897c180d9c27770fad1e55914653a6da85fc1f6500df3d768c32916ab8747",
+    size_bytes = 1823360,
+    url = "https://github.com/hermeticbuild/bsdtar-prebuilt/releases/download/v3.8.1-3/tar_linux_arm64",
+    visibility = ["PUBLIC"],
+)
+
+# hermetic-llvm's prebuilt stage 0: a statically linked multicall `llvm`
+# binary with one symlink per tool, and clang's builtin headers.
+hermetic_archive(
+    name = "llvm-23.1.2-linux-arm64",
+    sha256 = "4071594ac1f4487f8f68129019ab789348c94d117ff1aa940baa373cef679022",
+    size_bytes = 36938145,
+    type = "tar.zst",
+    url = "https://github.com/hermeticbuild/hermetic-llvm/releases/download/llvm-23.1.2-2/llvm-toolchain-minimal-23.1.2-linux-arm64-musl.tar.zst",
+)
+
+llvm_dist(
+    name = "llvm",
+    archive = ":llvm-23.1.2-linux-arm64",
+    version_major = "23",
+    visibility = ["PUBLIC"],
+)
+
+llvm_smoke_test(
+    name = "llvm-smoke",
+    llvm = ":llvm",
+    triple = "aarch64-linux-musl",
+)
+
+# Only compiler-rt's builtins are needed from the LLVM sources.
+hermetic_archive(
+    name = "llvm-project-23.1.2-compiler-rt",
+    include = ["llvm-project-23.1.2.src/compiler-rt/lib/builtins"],
+    sha256 = "271da53a2feb0cb221a9276a14268a3b76ad802c7fc8fb1098291a43b06e4c56",
+    size_bytes = 182710697,
+    strip_prefix = "llvm-project-23.1.2.src",
+    type = "tar.zst",
+    url = "https://github.com/hermeticbuild/llvm-redist/releases/download/llvmorg-23.1.2-r1/llvm-project-23.1.2.src.tar.zst",
+)
+
+hermetic_archive(
+    name = "musl-1.2.6",
+    listing = True,
+    sha256 = "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a",
+    size_bytes = 1082499,
+    strip_prefix = "musl-1.2.6",
+    type = "tar.gz",
+    url = "https://musl.libc.org/releases/musl-1.2.6.tar.gz",
+)
+
+target_runtimes(
+    name = "runtimes-aarch64-linux-musl",
+    compiler_rt = ":llvm-project-23.1.2-compiler-rt",
+    llvm = ":llvm",
+    musl = ":musl-1.2.6",
+    triple = "aarch64-linux-musl",
+)
+
+llvm_cxx_toolchain(
+    name = "cxx-aarch64-linux-musl",
+    llvm = ":llvm",
+    runtimes = ":runtimes-aarch64-linux-musl",
+    visibility = ["PUBLIC"],
+)
+
+constraint_setting(
+    name = "libc",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "musl",
+    constraint_setting = ":libc",
+    visibility = ["PUBLIC"],
+)

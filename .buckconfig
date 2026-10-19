@@ -47,3 +47,9 @@ ignore = \
   third-party/buck2/integrations/rust-project/tests, \
   third-party/buck2/tests, \
   third-party/buck2/target
+
+# Some download hosts (musl.libc.org) take well over buck2's 5s default to
+# answer.
+[http]
+connect_timeout_ms = 60000
+read_timeout_ms = 60000

@@ -24,7 +24,7 @@ configuration_alias(
 )
 
 system_cxx_toolchain(
-    name = "cxx",
+    name = "cxx-system",
     compiler = select({
         "DEFAULT": "gcc",
         "ovr_config//os:windows": None,
@@ -111,5 +111,16 @@ remote_test_execution_toolchain(
 
 noop_test_toolchain(
     name = "test",
+    visibility = ["PUBLIC"],
+)
+
+# The hermetic LLVM toolchain (toolchains/llvm) on its own platforms; the
+# system toolchain everywhere else.
+toolchain_alias(
+    name = "cxx",
+    actual = select({
+        "DEFAULT": ":cxx-system",
+        "x//toolchains/llvm:musl": "x//toolchains/llvm:cxx-aarch64-linux-musl",
+    }),
     visibility = ["PUBLIC"],
 )

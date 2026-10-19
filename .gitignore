@@ -1,3 +1,4 @@
 buck-out/
 /third-party/rust/.cargo/
 /third-party/rust/vendor/
+.buckconfig.local

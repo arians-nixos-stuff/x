@@ -150,7 +150,14 @@ ANDROID_BINARY_BUNDLE_COMMON_ATTRS = (
 Note: If you set this parameter, you must setup your NDK, otherwise Buck build will fail.""",
         ),
         "default_module_manifest_skeleton": attrs.option(attrs.one_of(attrs.transition_dep(cfg = cpu_transition), attrs.source()), default = None, doc = ""),
-        "defer_relink": attrs.bool(default = False),
+        "defer_relink": attrs.bool(
+            default = False,
+            doc = """With the relinker, packages the native libraries before relinking them and relinks them in parallel, so steps that read the APK (such as Redex) need not wait for the relinks. \
+The relinked libraries are the `[relinked_libs]` sub-target, listed in `[relinked_libs_manifest]`; an apk_genrule running `combine_apk_with_relinked_libs` swaps them in, and only its output carries the shipped libraries. \
+This target's own APK and its `[native_libs]` directory (forwarded unchanged by every apk_genrule) hold the libraries before the relinker, while its `[unstripped_native_libraries*]`, `linker_*` sub-targets and `unstripped_shared_libraries` describe the libraries that ship, as do its per-library `[native_libs][<soname>]` sub-targets except under late Gatorade, where they are the relinks before it: symbolicate and debug a combined target, not this one, and read `[relinked_libs]` for the shipped libraries. \
+Ignored without the relinker, with any exopackage mode, or with `native_library_pick_first`. \
+Under BOLT, BTI link reports (`fbandroid.enable_bti_link_reports`) describe the relink before BOLT.""",
+        ),
         "deps": attrs.list(
             attrs.split_transition_dep(cfg = cpu_split_transition),
             default = [],
@@ -1069,7 +1076,6 @@ android_library = prelude_rule(
         | jvm_common.k2()
         | jvm_common.kotlin_compiler_plugins()
         | jvm_common.incremental()
-        | jvm_common.enable_used_classes()
         | jvm_common.classic_java_content_based_paths()
         | android_common.patches_system_module_arg()
         | {
@@ -1815,7 +1821,6 @@ robolectric_test = prelude_rule(
         | jvm_common.incremental()
         | jvm_common.plugins()
         | jvm_common.kotlin_compiler_plugins()
-        | jvm_common.enable_used_classes()
         | jvm_common.classic_java_content_based_paths()
         | re_test_common.test_args()
         | test_common.attributes()

@@ -83,6 +83,7 @@ members = [
   "app/buck2_cmd_targets_server",
   "app/buck2_common",
   "app/buck2_concurrency",
+  "app/buck2_configuration_providers",
   "app/buck2_configured",
   "app/buck2_core",
   "app/buck2_critical_path",
@@ -99,6 +100,7 @@ members = [
   "app/buck2_error_tests",
   "app/buck2_errorformat",
   "app/buck2_event_log",
+  "app/buck2_event_log_format",
   "app/buck2_event_observer",
   "app/buck2_events",
   "app/buck2_execute",
@@ -190,6 +192,7 @@ members = [
   "starlark-rust/starlark_lsp",
   "starlark-rust/starlark_map",
   "starlark-rust/starlark_syntax",
+  "tools/retrace",
   "tools/starlark_fmt",
 ]
 exclude = ["superconsole"]
@@ -254,6 +257,7 @@ buck2_cmd_starlark_server = { path = "app/buck2_cmd_starlark_server" }
 buck2_cmd_targets_server = { path = "app/buck2_cmd_targets_server" }
 buck2_common = { path = "app/buck2_common" }
 buck2_concurrency = { path = "app/buck2_concurrency" }
+buck2_configuration_providers = { path = "app/buck2_configuration_providers" }
 buck2_configured = { path = "app/buck2_configured" }
 buck2_core = { path = "app/buck2_core" }
 buck2_critical_path = { path = "app/buck2_critical_path" }
@@ -269,6 +273,7 @@ buck2_error = { path = "app/buck2_error" }
 buck2_error_derive = { path = "app/buck2_error_derive" }
 buck2_errorformat = { path = "app/buck2_errorformat" }
 buck2_event_log = { path = "app/buck2_event_log" }
+buck2_event_log_format = { path = "app/buck2_event_log_format" }
 buck2_event_observer = { path = "app/buck2_event_observer" }
 buck2_events = { path = "app/buck2_events" }
 buck2_execute = { path = "app/buck2_execute" }

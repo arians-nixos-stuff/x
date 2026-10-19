@@ -12,6 +12,7 @@ package com.facebook.buck.android.exopackage;
 
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.AndroidInstallPrinter;
+import com.facebook.buck.android.ContentDigests;
 import com.facebook.buck.android.IsolatedApkInfo;
 import com.facebook.buck.core.filesystems.AbsPath;
 import com.facebook.buck.core.util.log.Logger;
@@ -101,6 +102,7 @@ public class ExopackageInstaller {
   private final Optional<String> buck2BuildUuid;
   private final Path dataRoot;
   private final InstallTimings timings;
+  private boolean appStopped;
 
   public ExopackageInstaller(
       IsolatedExopackageInfo exoInfo,
@@ -139,8 +141,16 @@ public class ExopackageInstaller {
     Preconditions.checkArgument(AdbHelper.PACKAGE_NAME_PATTERN.matcher(packageName).matches());
   }
 
-  /** Installs an apk, restarting the running app if necessary. */
-  public void doInstall(IsolatedApkInfo isolatedApkInfo, SetDebugAppMode setDebugAppMode)
+  /**
+   * Installs an apk with its exopackage payloads.
+   *
+   * <p>Stops the running app only when something requires it: ahead of a change it could observe,
+   * or, with {@code restartApp}, so that the activity started after the install gets a fresh
+   * process. Replacing the apk needs no stop of its own, since the package manager kills the app to
+   * replace it.
+   */
+  public void doInstall(
+      IsolatedApkInfo isolatedApkInfo, SetDebugAppMode setDebugAppMode, boolean restartApp)
       throws Exception {
     if (setDebugAppMode == SetDebugAppMode.SET) {
       device.setDebugAppPackageName(packageName);
@@ -151,6 +161,13 @@ public class ExopackageInstaller {
       ImmutableSortedSet<Path> filesOnDevice = device.listDirRecursive(dataRoot);
       timings.recordDeviceSetup(setupStart, System.currentTimeMillis());
       ImmutableList<ResolvedExoPayload> payloads = resolveExoPayloads();
+      // The running app may still load a file about to be deleted, and reads the metadata about to
+      // be rewritten, so it is stopped before either. New payload files need no stop: they are
+      // named by content hash, and nothing reads one until metadata names it.
+      ImmutableSortedSet<Path> filesToDelete = filesToDelete(filesOnDevice, payloads);
+      if (!filesToDelete.isEmpty()) {
+        stopApp();
+      }
 
       // Reclaim space before pushing so a device that is already full can free room for the
       // payload. Best effort on purpose: neither step is needed for the install to be correct.
@@ -161,34 +178,37 @@ public class ExopackageInstaller {
       // still does not fit fails with ENOSPC, which is tagged NO_SPACE_LEFT_ON_DEVICE.
       try {
         device.rmStaleFiles(packageName);
-        deleteFiles(filesToDelete(filesOnDevice, payloads));
+        deleteFiles(filesToDelete);
       } catch (Exception e) {
         LOG.warn(e, "Could not reclaim exopackage space for %s; continuing", packageName);
       }
       pushMissingFiles(filesOnDevice, payloads);
 
       // Metadata is what the app reads to find these files, so it must not land before them.
-      installMetadata(
+      ImmutableMap<Path, String> metadata =
           payloads.stream()
               .flatMap(payload -> payload.metadataToInstall.entrySet().stream())
-              .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue)));
+              .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+      if (metadataChanged(filesOnDevice, metadata)) {
+        stopApp();
+        installMetadata(metadata);
+      }
     }
     if (buck2BuildUuid.isPresent()) {
       device.installBuildUuidFile(
           AdbHelper.BUILD_METADATA_INSTALL_ROOT, packageName, buck2BuildUuid.get());
     }
-    installAndRestartApk(isolatedApkInfo);
+    boolean apkInstalled = installApkIfNecessary(isolatedApkInfo);
+    if (restartApp && !apkInstalled) {
+      stopApp();
+    }
   }
 
-  public void installAndRestartApk(IsolatedApkInfo isolatedApkInfo) throws Exception {
-    installApkIfNecessary(isolatedApkInfo);
-    killApp();
-  }
-
-  private void installApkIfNecessary(IsolatedApkInfo isolatedApkInfo) throws Exception {
+  /** Installs the apk unless the device already has this exact apk; returns whether it did. */
+  private boolean installApkIfNecessary(IsolatedApkInfo isolatedApkInfo) throws Exception {
     File apk = isolatedApkInfo.getApkPath().toFile();
 
-    if (shouldAppBeInstalled(isolatedApkInfo)) {
+    if (AdbHelper.shouldAppBeInstalled(device, packageName, apk, androidPrinter)) {
       long installStart = System.currentTimeMillis();
       boolean success =
           device.installApkOnDevice(
@@ -205,11 +225,43 @@ public class ExopackageInstaller {
         throw AndroidInstallException.Companion.adbCommandFailedException(
             "Installing Apk failed.", null);
       }
+      return true;
+    }
+    return false;
+  }
+
+  /** Stops the running app, at most once per install. */
+  private void stopApp() throws Exception {
+    if (!appStopped) {
+      device.stopPackage(packageName);
+      appStopped = true;
     }
   }
 
-  private void killApp() throws Exception {
-    device.stopPackage(packageName);
+  /**
+   * Whether any metadata file on the device differs from what this install would write. Compared by
+   * content hash, so it is byte-exact and independent of how adb transfers text.
+   */
+  private boolean metadataChanged(
+      ImmutableSortedSet<Path> filesOnDevice, ImmutableMap<Path, String> metadata) {
+    for (Map.Entry<Path, String> entry : metadata.entrySet()) {
+      if (!filesOnDevice.contains(entry.getKey())) {
+        return true;
+      }
+      String onDevice;
+      try {
+        onDevice = device.getContentHash(dataRoot.resolve(entry.getKey()).toString());
+      } catch (Exception e) {
+        LOG.info("Could not hash %s; rewriting it: %s", entry.getKey(), e.getMessage());
+        return true;
+      }
+      String wanted =
+          ContentDigests.getContentHash(entry.getValue().getBytes(StandardCharsets.UTF_8));
+      if (!onDevice.equalsIgnoreCase(wanted)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -461,71 +513,6 @@ public class ExopackageInstaller {
     return exoInfo.getDexInfo().isPresent()
         || exoInfo.getNativeLibsInfo().isPresent()
         || exoInfo.getResourcesInfo().isPresent();
-  }
-
-  private Optional<PackageInfo> getPackageInfo(String packageName) throws Exception {
-    return device.getPackageInfo(packageName);
-  }
-
-  private boolean shouldAppBeInstalled(IsolatedApkInfo apkInfo) throws Exception {
-    Optional<PackageInfo> appPackageInfo = getPackageInfo(packageName);
-    if (appPackageInfo.isEmpty()) {
-      androidPrinter.printMessage("App not installed.  Installing now.");
-      return true;
-    }
-
-    String installedApkPath = appPackageInfo.get().apkPath;
-    LOG.debug("App path: %s", installedApkPath);
-    String installedAppManifestDigest;
-    try {
-      installedAppManifestDigest = getInstalledAppManifestDigest(installedApkPath);
-    } catch (AdbCommandFailedException e) {
-      LOG.info("Could not read the installed APK manifest digest: %s", e.getMessage());
-      return !installedApkContentMatches(installedApkPath, apkInfo);
-    }
-    String localAppManifestDigest =
-        ExopackageUtil.getJarManifestDigest(apkInfo.getApkPath().toString());
-    LOG.info("Local APK manifest digest: %s", localAppManifestDigest);
-    LOG.info("Installed APK manifest digest: %s", installedAppManifestDigest);
-
-    if (!installedAppManifestDigest.equals(localAppManifestDigest)) {
-      LOG.info("APK manifest digests do not match.  Must re-install.");
-      return true;
-    }
-
-    LOG.info("APK manifest digests match.  No need to install.");
-    return false;
-  }
-
-  /** Compares whole-apk content hashes, for devices that cannot read the manifest digest. */
-  private boolean installedApkContentMatches(String installedApkPath, IsolatedApkInfo apkInfo)
-      throws IOException {
-    String installedHash;
-    try {
-      installedHash = device.getContentHash(installedApkPath);
-    } catch (Exception e) {
-      LOG.info("Could not hash the installed APK.  Must re-install: %s", e.getMessage());
-      return false;
-    }
-    boolean matches =
-        installedHash.equalsIgnoreCase(
-            ExopackageUtil.getContentHash(apkInfo.getApkPath().toFile()));
-    LOG.info(
-        matches
-            ? "APK content hashes match.  No need to install."
-            : "APK content hashes do not match.  Must re-install.");
-    return matches;
-  }
-
-  private String getInstalledAppManifestDigest(String packagePath) throws Exception {
-    String output = device.getApkManifestDigest(packagePath);
-
-    String result = output.trim();
-    if (result.contains("\n") || result.contains("\r")) {
-      throw new IllegalStateException("Unexpected APK manifest digest:\n" + output);
-    }
-
-    return result;
   }
 
   /** What the device holds that no payload wants. The lock file belongs to no payload and stays. */

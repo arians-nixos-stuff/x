@@ -1143,6 +1143,7 @@ dependencies = [
  "buck2_build_api",
  "buck2_cli_proto",
  "buck2_common",
+ "buck2_configuration_providers",
  "buck2_core",
  "buck2_data",
  "buck2_dynamic_actions",
@@ -1208,6 +1209,7 @@ dependencies = [
  "async-trait",
  "buck2_build_api",
  "buck2_common",
+ "buck2_configuration_providers",
  "buck2_core",
  "buck2_error",
  "buck2_events",
@@ -1803,6 +1805,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "buck2_configuration_providers"
+version = "0.1.0"
+dependencies = [
+ "allocative",
+ "buck2_build_api",
+ "buck2_build_api_derive",
+ "buck2_common",
+ "buck2_core",
+ "buck2_error",
+ "buck2_hash",
+ "buck2_interpreter",
+ "buck2_util",
+ "dupe",
+ "pagable",
+ "starlark",
+]
+
+[[package]]
 name = "buck2_configured"
 version = "0.1.0"
 dependencies = [
@@ -1811,6 +1831,7 @@ dependencies = [
  "buck2_build_api",
  "buck2_build_signals",
  "buck2_common",
+ "buck2_configuration_providers",
  "buck2_core",
  "buck2_error",
  "buck2_node",
@@ -2118,6 +2139,7 @@ dependencies = [
  "buck2_core",
  "buck2_data",
  "buck2_error",
+ "buck2_event_log_format",
  "buck2_event_observer",
  "buck2_events",
  "buck2_fs",
@@ -2141,6 +2163,20 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.7.19",
  "tracing",
+]
+
+[[package]]
+name = "buck2_event_log_format"
+version = "0.1.0"
+dependencies = [
+ "allocative",
+ "buck2_cli_proto",
+ "buck2_data",
+ "buck2_error",
+ "bytes",
+ "prost",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2991,7 +3027,6 @@ dependencies = [
  "buck2_certs",
  "buck2_cli_proto",
  "buck2_common",
- "buck2_configured",
  "buck2_core",
  "buck2_data",
  "buck2_directory",
@@ -3289,6 +3324,7 @@ dependencies = [
  "async-trait",
  "buck2_build_api",
  "buck2_build_api_derive",
+ "buck2_configuration_providers",
  "buck2_core",
  "buck2_error",
  "buck2_events",
@@ -3316,11 +3352,9 @@ dependencies = [
  "blake3",
  "buck2_env",
  "buck2_error",
- "buck2_hash",
  "buck2_wrapper_common",
  "dice_futures",
  "dupe",
- "futures 0.3.34",
  "libc",
  "mini_vec",
  "pagable",
@@ -3328,7 +3362,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "starlark_map",
  "strong_hash",
  "sysinfo",
  "three_billion_instructions",
@@ -7568,6 +7601,19 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "retrace"
+version = "0.1.0"
+dependencies = [
+ "allocative",
+ "anyhow",
+ "buck2_data",
+ "fxhash",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
 ]
 
 [[package]]

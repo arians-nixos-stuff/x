@@ -14,8 +14,12 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
+      # Only reindeer, cargo and rustc, from the nixpkgs pinned in flake.lock and
+      # so from the binary cache: the dev shell would build josh from source.
       - name: Regenerate with reindeer
-        run: nix develop --command reindeer --third-party-dir third-party/rust buckify
+        run: |
+          nix shell --inputs-from . nixpkgs#reindeer nixpkgs#cargo nixpkgs#rustc \
+            --command reindeer --third-party-dir third-party/rust buckify
 
       - name: Nothing changed
         run: |
@@ -23,6 +27,6 @@ jobs:
           if [ -n "$changes" ]; then
             echo "$changes"
             git diff --stat -- third-party/rust
-            echo "::error::third-party/rust is out of date; run: nix develop --command reindeer --third-party-dir third-party/rust buckify"
+            echo "::error::third-party/rust is out of date; run: nix shell --inputs-from . nixpkgs#reindeer nixpkgs#cargo nixpkgs#rustc --command reindeer --third-party-dir third-party/rust buckify"
             exit 1
           fi

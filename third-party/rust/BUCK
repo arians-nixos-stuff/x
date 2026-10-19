@@ -7249,6 +7249,46 @@ third_party_rust_library(
     ],
 )
 
+third_party_rust_alias(
+    name = "fastcdc",
+    actual = ":fastcdc-4",
+    platforms = [
+        "linux-arm64",
+        "linux-x86_64",
+        "macos-arm64",
+        "macos-x86_64",
+        "windows-gnu",
+        "windows-msvc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "fastcdc-4.0.1.crate",
+    sha256 = "77af40d8a8dadb92dc178569a5f5edb5f3056e98255c2de48ab5d59a52892e0c",
+    strip_prefix = "fastcdc-4.0.1",
+    urls = ["https://static.crates.io/crates/fastcdc/4.0.1/download"],
+    visibility = [],
+)
+
+third_party_rust_library(
+    name = "fastcdc-4",
+    srcs = [":fastcdc-4.0.1.crate"],
+    crate = "fastcdc",
+    crate_root = "fastcdc-4.0.1.crate/src/lib.rs",
+    edition = "2024",
+    features = ["default"],
+    platform = {
+        "linux-arm64": dict(),
+        "linux-x86_64": dict(),
+        "macos-arm64": dict(),
+        "macos-x86_64": dict(),
+        "windows-gnu": dict(),
+        "windows-msvc": dict(),
+    },
+    visibility = [],
+)
+
 http_archive(
     name = "fastrand-2.5.0.crate",
     sha256 = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223",
@@ -20494,6 +20534,7 @@ third_party_rust_binary(
         ":erased-serde-0.4",
         ":faccess-0.2",
         ":fancy-regex-0.19",
+        ":fastcdc-4",
         ":fbinit-0.2",
         ":flate2-1",
         ":fnv-1",

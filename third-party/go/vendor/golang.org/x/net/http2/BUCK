@@ -10,6 +10,7 @@ go_library(
         "//third-party/go/vendor/golang.org/x/net/http2/hpack:hpack",
         "//third-party/go/vendor/golang.org/x/net/idna:idna",
         "//third-party/go/vendor/golang.org/x/net/internal/httpcommon:httpcommon",
+        "//third-party/go/vendor/golang.org/x/net/internal/httpsfv:httpsfv",
     ],
     visibility = ["PUBLIC"],
 )

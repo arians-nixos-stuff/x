@@ -12,6 +12,7 @@ go_library(
         "//third-party/go/vendor/google.golang.org/grpc/experimental/stats:stats",
         "//third-party/go/vendor/google.golang.org/grpc/grpclog:grpclog",
         "//third-party/go/vendor/google.golang.org/grpc/internal:internal",
+        "//third-party/go/vendor/google.golang.org/grpc/internal/envconfig:envconfig",
         "//third-party/go/vendor/google.golang.org/grpc/metadata:metadata",
         "//third-party/go/vendor/google.golang.org/grpc/resolver:resolver",
         "//third-party/go/vendor/google.golang.org/grpc/serviceconfig:serviceconfig",

@@ -7,6 +7,7 @@ go_library(
     header_namespace = "",
     deps = [
         "//third-party/go/vendor/google.golang.org/grpc/experimental/stats:stats",
+        "//third-party/go/vendor/google.golang.org/grpc/internal:internal",
         "//third-party/go/vendor/google.golang.org/grpc/stats:stats",
     ],
     visibility = ["PUBLIC"],

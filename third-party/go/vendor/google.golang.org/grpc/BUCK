@@ -27,6 +27,7 @@ go_library(
         "//third-party/go/vendor/google.golang.org/grpc/internal/balancerload:balancerload",
         "//third-party/go/vendor/google.golang.org/grpc/internal/binarylog:binarylog",
         "//third-party/go/vendor/google.golang.org/grpc/internal/channelz:channelz",
+        "//third-party/go/vendor/google.golang.org/grpc/internal/envconfig:envconfig",
         "//third-party/go/vendor/google.golang.org/grpc/internal/grpcsync:grpcsync",
         "//third-party/go/vendor/google.golang.org/grpc/internal/grpcutil:grpcutil",
         "//third-party/go/vendor/google.golang.org/grpc/internal/idle:idle",

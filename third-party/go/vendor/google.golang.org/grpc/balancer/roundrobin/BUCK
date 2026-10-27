@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//third-party/go/vendor/google.golang.org/grpc/balancer:balancer",
         "//third-party/go/vendor/google.golang.org/grpc/balancer/endpointsharding:endpointsharding",
-        "//third-party/go/vendor/google.golang.org/grpc/balancer/pickfirst/pickfirstleaf:pickfirstleaf",
+        "//third-party/go/vendor/google.golang.org/grpc/balancer/pickfirst:pickfirst",
         "//third-party/go/vendor/google.golang.org/grpc/grpclog:grpclog",
         "//third-party/go/vendor/google.golang.org/grpc/internal/grpclog:grpclog",
     ],

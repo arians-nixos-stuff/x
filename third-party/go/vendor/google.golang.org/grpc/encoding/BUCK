@@ -6,6 +6,7 @@ go_library(
     srcs = native.glob(["*.go", "*.s", "*.h", "*.c", "*.cc", "*.cpp", "*.S"]),
     header_namespace = "",
     deps = [
+        "//third-party/go/vendor/google.golang.org/grpc/encoding/internal:internal",
         "//third-party/go/vendor/google.golang.org/grpc/internal/grpcutil:grpcutil",
         "//third-party/go/vendor/google.golang.org/grpc/mem:mem",
     ],

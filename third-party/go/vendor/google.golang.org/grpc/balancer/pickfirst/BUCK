@@ -8,9 +8,10 @@ go_library(
     deps = [
         "//third-party/go/vendor/google.golang.org/grpc/balancer:balancer",
         "//third-party/go/vendor/google.golang.org/grpc/balancer/pickfirst/internal:internal",
-        "//third-party/go/vendor/google.golang.org/grpc/balancer/pickfirst/pickfirstleaf:pickfirstleaf",
         "//third-party/go/vendor/google.golang.org/grpc/connectivity:connectivity",
+        "//third-party/go/vendor/google.golang.org/grpc/experimental/stats:stats",
         "//third-party/go/vendor/google.golang.org/grpc/grpclog:grpclog",
+        "//third-party/go/vendor/google.golang.org/grpc/internal/balancer/weight:weight",
         "//third-party/go/vendor/google.golang.org/grpc/internal/envconfig:envconfig",
         "//third-party/go/vendor/google.golang.org/grpc/internal/grpclog:grpclog",
         "//third-party/go/vendor/google.golang.org/grpc/internal/pretty:pretty",

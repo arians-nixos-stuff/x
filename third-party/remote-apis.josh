@@ -1,0 +1,5 @@
+# How bazelbuild/remote-apis maps into this repository.
+#
+# Upstream is a standalone repository of protobuf definitions, so the whole
+# tree lands in third-party/remote-apis.
+:prefix=third-party/remote-apis

@@ -16,6 +16,9 @@ jobs:
           - name: buck2
             url: https://github.com/facebook/buck2
             branch: main
+          - name: remote-apis
+            url: https://github.com/bazelbuild/remote-apis
+            branch: main
     env:
       NAME: ${{ matrix.name }}
       URL: ${{ matrix.url }}

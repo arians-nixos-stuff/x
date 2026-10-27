@@ -50,6 +50,7 @@
             '')
             pkgs.cargo
             pkgs.go
+            pkgs.protobuf
             # The go toolchain bootstraps its tools through a python wrapper.
             pkgs.python3
             pkgs.reindeer

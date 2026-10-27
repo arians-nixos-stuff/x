@@ -1,0 +1,5 @@
+filegroup(
+    name = "protos",
+    srcs = glob(["google/**/*.proto"]),
+    visibility = ["PUBLIC"],
+)

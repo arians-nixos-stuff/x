@@ -1,0 +1,14 @@
+# How googleapis/googleapis maps into this repository.
+#
+# Only the protos that third-party/remote-apis imports, directly or through
+# each other, so that protoc can resolve those imports. Their Go code comes
+# from genproto and cloud.google.com/go, vendored in third-party/go.
+:[
+    ::google/api/annotations.proto
+    ::google/api/client.proto
+    ::google/api/field_behavior.proto
+    ::google/api/http.proto
+    ::google/api/launch_stage.proto
+    ::google/longrunning/operations.proto
+    ::google/rpc/status.proto
+]:prefix=third-party/googleapis

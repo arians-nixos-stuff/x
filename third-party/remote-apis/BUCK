@@ -1,0 +1,112 @@
+# Go bindings for the protos, generated with the Opaque API. The .pb.go files
+# that upstream commits use the Open Struct API and are not built.
+
+_PROTOS = [
+    "build/bazel/remote/asset/v1/remote_asset.proto",
+    "build/bazel/remote/execution/v2/remote_execution.proto",
+    "build/bazel/remote/logstream/v1/remote_logstream.proto",
+    "build/bazel/semver/semver.proto",
+]
+
+_GO_OUTS = [
+    "build/bazel/remote/asset/v1/remote_asset.pb.go",
+    "build/bazel/remote/asset/v1/remote_asset_grpc.pb.go",
+    "build/bazel/remote/execution/v2/remote_execution.pb.go",
+    "build/bazel/remote/execution/v2/remote_execution_grpc.pb.go",
+    "build/bazel/remote/logstream/v1/remote_logstream.pb.go",
+    "build/bazel/remote/logstream/v1/remote_logstream_grpc.pb.go",
+    "build/bazel/semver/semver.pb.go",
+]
+
+genrule(
+    name = "go_protos",
+    srcs = {p: p for p in _PROTOS} | {"googleapis": "//third-party/googleapis:protos"},
+    outs = {o.rsplit("/", 1)[1]: [o] for o in _GO_OUTS},
+    cmd = " ".join([
+        "protoc",
+        "-I.",
+        "-Igoogleapis",
+        "--plugin=protoc-gen-go=$(exe //third-party/go/vendor/google.golang.org/protobuf/cmd/protoc-gen-go:protoc-gen-go)",
+        "--plugin=protoc-gen-go-grpc=$(exe //third-party/go/vendor/google.golang.org/grpc/cmd/protoc-gen-go-grpc:protoc-gen-go-grpc)",
+        "--go_out=$OUT",
+        "--go_opt=paths=source_relative",
+        "--go_opt=default_api_level=API_OPAQUE",
+        "--go-grpc_out=$OUT",
+        "--go-grpc_opt=paths=source_relative",
+    ] + _PROTOS),
+)
+
+go_library(
+    name = "remoteexecution",
+    package_name = "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2",
+    srcs = [
+        ":go_protos[remote_execution.pb.go]",
+        ":go_protos[remote_execution_grpc.pb.go]",
+    ],
+    deps = [
+        ":semver",
+        "//third-party/go/vendor/cloud.google.com/go/longrunning/autogen/longrunningpb:longrunningpb",
+        "//third-party/go/vendor/google.golang.org/genproto/googleapis/api/annotations:annotations",
+        "//third-party/go/vendor/google.golang.org/genproto/googleapis/rpc/status:status",
+        "//third-party/go/vendor/google.golang.org/grpc:grpc",
+        "//third-party/go/vendor/google.golang.org/grpc/codes:codes",
+        "//third-party/go/vendor/google.golang.org/grpc/status:status",
+        "//third-party/go/vendor/google.golang.org/protobuf/reflect/protoreflect:protoreflect",
+        "//third-party/go/vendor/google.golang.org/protobuf/runtime/protoimpl:protoimpl",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/anypb:anypb",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/durationpb:durationpb",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/timestamppb:timestamppb",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/wrapperspb:wrapperspb",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+go_library(
+    name = "remoteasset",
+    package_name = "github.com/bazelbuild/remote-apis/build/bazel/remote/asset/v1",
+    srcs = [
+        ":go_protos[remote_asset.pb.go]",
+        ":go_protos[remote_asset_grpc.pb.go]",
+    ],
+    deps = [
+        ":remoteexecution",
+        "//third-party/go/vendor/google.golang.org/genproto/googleapis/api/annotations:annotations",
+        "//third-party/go/vendor/google.golang.org/genproto/googleapis/rpc/status:status",
+        "//third-party/go/vendor/google.golang.org/grpc:grpc",
+        "//third-party/go/vendor/google.golang.org/grpc/codes:codes",
+        "//third-party/go/vendor/google.golang.org/grpc/status:status",
+        "//third-party/go/vendor/google.golang.org/protobuf/reflect/protoreflect:protoreflect",
+        "//third-party/go/vendor/google.golang.org/protobuf/runtime/protoimpl:protoimpl",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/durationpb:durationpb",
+        "//third-party/go/vendor/google.golang.org/protobuf/types/known/timestamppb:timestamppb",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+go_library(
+    name = "remotelogstream",
+    package_name = "github.com/bazelbuild/remote-apis/build/bazel/remote/logstream/v1",
+    srcs = [
+        ":go_protos[remote_logstream.pb.go]",
+        ":go_protos[remote_logstream_grpc.pb.go]",
+    ],
+    deps = [
+        "//third-party/go/vendor/google.golang.org/grpc:grpc",
+        "//third-party/go/vendor/google.golang.org/grpc/codes:codes",
+        "//third-party/go/vendor/google.golang.org/grpc/status:status",
+        "//third-party/go/vendor/google.golang.org/protobuf/reflect/protoreflect:protoreflect",
+        "//third-party/go/vendor/google.golang.org/protobuf/runtime/protoimpl:protoimpl",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+go_library(
+    name = "semver",
+    package_name = "github.com/bazelbuild/remote-apis/build/bazel/semver",
+    srcs = [":go_protos[semver.pb.go]"],
+    deps = [
+        "//third-party/go/vendor/google.golang.org/protobuf/reflect/protoreflect:protoreflect",
+        "//third-party/go/vendor/google.golang.org/protobuf/runtime/protoimpl:protoimpl",
+    ],
+    visibility = ["PUBLIC"],
+)

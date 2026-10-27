@@ -1,0 +1,31 @@
+name: third-party-go
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gobuckify:
+    name: vendor is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Regenerate with go mod vendor and gobuckify
+        run: |
+          nix develop --command bash -c '
+            cd third-party/go && go mod tidy && go mod vendor && cd ../.. &&
+            buck2 run prelude//go/tools/gobuckify:gobuckify -- third-party/go'
+
+      - name: Nothing changed
+        run: |
+          changes=$(git status --porcelain -- third-party/go)
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            git diff --stat -- third-party/go
+            echo "::error::third-party/go is out of date; see third-party/go/README.md"
+            exit 1
+          fi

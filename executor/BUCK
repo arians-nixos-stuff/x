@@ -1,0 +1,9 @@
+go_binary(
+    name = "executor",
+    srcs = ["main.go"],
+    deps = [
+        "//executor/capabilities:capabilities",
+        "//third-party/go/vendor/google.golang.org/grpc:grpc",
+        "//third-party/remote-apis:remoteexecution",
+    ],
+)

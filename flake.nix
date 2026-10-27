@@ -41,12 +41,29 @@
         default = pkgs.mkShell {
           packages = [
             self.packages.${pkgs.stdenv.hostPlatform.system}.josh
+            # The buck2 release that upstream pins for building the vendored tree,
+            # so that it always matches the vendored prelude.
+            (pkgs.writeShellScriptBin "buck2" ''
+              root=$PWD
+              until [ -e "$root/.buckroot" ] || [ "$root" = / ]; do root=$(dirname "$root"); done
+              exec ${pkgs.dotslash}/bin/dotslash "$root/third-party/buck2/bootstrap/buck2" "$@"
+            '')
             pkgs.cargo
+            pkgs.go
+            pkgs.protobuf
+            # The go toolchain bootstraps its tools through a python wrapper.
+            pkgs.python3
             pkgs.reindeer
             # reindeer evaluates cfg() platform predicates with rustc; without it
             # platform-specific dependencies are silently left out.
             pkgs.rustc
           ];
+          # `nix develop` always runs bash; `--command` runs it non-interactively.
+          shellHook = ''
+            if [[ $- == *i* ]]; then
+              source <(buck2 completion bash)
+            fi
+          '';
         };
       });
     };

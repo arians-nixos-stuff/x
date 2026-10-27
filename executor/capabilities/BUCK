@@ -1,0 +1,20 @@
+go_library(
+    name = "capabilities",
+    srcs = ["capabilities.go"],
+    deps = [
+        "//third-party/remote-apis:remoteexecution",
+        "//third-party/remote-apis:semver",
+    ],
+    visibility = ["//executor/..."],
+)
+
+go_test(
+    name = "test",
+    srcs = ["capabilities_test.go"],
+    target_under_test = ":capabilities",
+    deps = [
+        "//third-party/go/vendor/google.golang.org/grpc:grpc",
+        "//third-party/go/vendor/google.golang.org/grpc/credentials/insecure:insecure",
+        "//third-party/remote-apis:remoteexecution",
+    ],
+)

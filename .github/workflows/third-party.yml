@@ -16,6 +16,10 @@ jobs:
           - name: buck2
             url: https://github.com/facebook/buck2
             branch: main
+          - name: googleapis
+            url: https://github.com/googleapis/googleapis
+            branch: master
+            selects: true
     env:
       NAME: ${{ matrix.name }}
       URL: ${{ matrix.url }}

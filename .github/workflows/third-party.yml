@@ -20,6 +20,7 @@ jobs:
       NAME: ${{ matrix.name }}
       URL: ${{ matrix.url }}
       BRANCH: ${{ matrix.branch }}
+      SELECTS: ${{ matrix.selects }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -35,6 +36,11 @@ jobs:
       - name: The mapping is reversible
         run: |
           upstream=$(git rev-parse "refs/josh/remotes/$NAME/$BRANCH")
+          if [ "$SELECTS" = true ]; then
+            selection=":[$(grep '^ *::' "third-party/$NAME.josh")]"
+            upstream=$(nix develop --command josh-filter "$selection" "$upstream" --update refs/josh/selection)
+            echo "selected from upstream: $upstream"
+          fi
           mapped=$(git rev-parse "refs/remotes/$NAME/$BRANCH")
           inverse=":invert[$(grep -v '^ *#' "third-party/$NAME.josh")]"
           inverted=$(nix develop --command josh-filter "$inverse" "$mapped" --update refs/josh/check)

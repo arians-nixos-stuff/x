@@ -8,7 +8,10 @@ Each upstream has a mapping, `third-party/<name>.josh`: a josh filter that
 takes upstream's tree to where it lives in this repository. Usually that is
 `:prefix=third-party/<name>`, but a mapping may also spread upstream across the
 tree; `buck2.josh` puts buck2's shim at our root, which plays the role of
-Meta's fbsource.
+Meta's fbsource. A mapping may also take only some files of upstream:
+`googleapis.josh` takes the few protos we import from a repository of
+thousands. Its history then holds just the upstream commits that touch those
+files.
 
 Upstream is a josh remote with the mapping as its filter. josh fetches upstream
 and rewrites its history through the mapping; the result shows up in jj as
@@ -18,8 +21,14 @@ ancestors.
 
 ## Rules
 
-- Mappings only move paths. No `:exclude`, `:replace`, `:unsign` or squashing:
-  those are lossy and break the way back to upstream.
+- Mappings only select and move paths. No `:exclude`, `:replace`, `:unsign` or
+  squashing: those are lossy and break the way back to upstream.
+- A mapping that selects files starts with the selection, in upstream's layout,
+  and then moves it:
+  `:[ ::google/rpc/status.proto ... ]:prefix=third-party/googleapis`.
+  Select whole files or directories, one `::` entry per line. Leaving
+  everything else out is not lossy: `josh push` applies our changes to
+  upstream's own tree, so the files we left out come through unchanged.
 - When a mapping moves upstream paths into directories we share (such as
   `third-party/` or `tools/` at the root), list the moved entries one by one.
   Otherwise the inverse claims our own files as upstream's.
@@ -30,9 +39,12 @@ ancestors.
 CI (`.github/workflows/third-party.yml`) checks every mapping: the inverse of
 the mapped upstream branch must reproduce upstream exactly, and the upstream
 side of the latest import must be in the mapped upstream history, which proves
-the import was made with the mapping as committed. CI finds the latest import by
-the subject of its merge commit, `third-party/<name>: import upstream ...`. A new vendored project
-gets an entry in the workflow's matrix.
+the import was made with the mapping as committed. For a mapping that selects
+files, "upstream" means upstream with only those files, filtered with the
+mapping's `::` entries. CI finds the latest import by the subject of its merge
+commit, `third-party/<name>: import upstream ...`. A new vendored project gets
+an entry in the workflow's matrix, with `selects: true` if its mapping selects
+files.
 
 ## Setting up a clone
 

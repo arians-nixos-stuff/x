@@ -3,12 +3,30 @@ load(":defs.bzl", "llvm_cxx_toolchain", "llvm_dist", "llvm_smoke_test", "target_
 
 oncall("x")
 
+# The prebuilts below run where actions run, so everything reaches them through
+# an exec dep and the execution platform's architecture selects which one.
+
 # Static bsdtar with zstd/gzip support: everything below unpacks with it.
 static_binary(
-    name = "bsdtar",
+    name = "bsdtar-linux-arm64",
     sha256 = "673897c180d9c27770fad1e55914653a6da85fc1f6500df3d768c32916ab8747",
     size_bytes = 1823360,
     url = "https://github.com/hermeticbuild/bsdtar-prebuilt/releases/download/v3.8.1-3/tar_linux_arm64",
+)
+
+static_binary(
+    name = "bsdtar-linux-amd64",
+    sha256 = "ae24dbc3ecf6ad628c2fdd205a52347fd4446589e750469766669e25cb80e22b",
+    size_bytes = 1980392,
+    url = "https://github.com/hermeticbuild/bsdtar-prebuilt/releases/download/v3.8.1-3/tar_linux_amd64",
+)
+
+alias(
+    name = "bsdtar",
+    actual = select({
+        "prelude//cpu:arm64": ":bsdtar-linux-arm64",
+        "prelude//cpu:x86_64": ":bsdtar-linux-amd64",
+    }),
     visibility = ["PUBLIC"],
 )
 
@@ -22,9 +40,20 @@ hermetic_archive(
     url = "https://github.com/hermeticbuild/hermetic-llvm/releases/download/llvm-23.1.2-2/llvm-toolchain-minimal-23.1.2-linux-arm64-musl.tar.zst",
 )
 
+hermetic_archive(
+    name = "llvm-23.1.2-linux-amd64",
+    sha256 = "2808ea0503af3656373fc141ddc7d082b53c7f858efd5245aed0241734257348",
+    size_bytes = 38767462,
+    type = "tar.zst",
+    url = "https://github.com/hermeticbuild/hermetic-llvm/releases/download/llvm-23.1.2-2/llvm-toolchain-minimal-23.1.2-linux-amd64-musl.tar.zst",
+)
+
 llvm_dist(
     name = "llvm",
-    archive = ":llvm-23.1.2-linux-arm64",
+    archive = select({
+        "prelude//cpu:arm64": ":llvm-23.1.2-linux-arm64",
+        "prelude//cpu:x86_64": ":llvm-23.1.2-linux-amd64",
+    }),
     version_major = "23",
     visibility = ["PUBLIC"],
 )
@@ -32,7 +61,10 @@ llvm_dist(
 llvm_smoke_test(
     name = "llvm-smoke",
     llvm = ":llvm",
-    triple = "aarch64-linux-musl",
+    triple = select({
+        "prelude//cpu:arm64": "aarch64-linux-musl",
+        "prelude//cpu:x86_64": "x86_64-linux-musl",
+    }),
 )
 
 # Only compiler-rt's builtins are needed from the LLVM sources.
@@ -68,6 +100,31 @@ llvm_cxx_toolchain(
     name = "cxx-aarch64-linux-musl",
     llvm = ":llvm",
     runtimes = ":runtimes-aarch64-linux-musl",
+    visibility = ["PUBLIC"],
+)
+
+target_runtimes(
+    name = "runtimes-x86_64-linux-musl",
+    compiler_rt = ":llvm-project-23.1.2-compiler-rt",
+    llvm = ":llvm",
+    musl = ":musl-1.2.6",
+    triple = "x86_64-linux-musl",
+)
+
+llvm_cxx_toolchain(
+    name = "cxx-x86_64-linux-musl",
+    llvm = ":llvm",
+    runtimes = ":runtimes-x86_64-linux-musl",
+    visibility = ["PUBLIC"],
+)
+
+# The toolchain for the architecture the target configuration asks for.
+toolchain_alias(
+    name = "cxx-musl",
+    actual = select({
+        "prelude//cpu:arm64": ":cxx-aarch64-linux-musl",
+        "prelude//cpu:x86_64": ":cxx-x86_64-linux-musl",
+    }),
     visibility = ["PUBLIC"],
 )
 

@@ -166,3 +166,55 @@ BUILTINS_TF_SRCS = [
     "trunctfhf2.c",
     "trunctfsf2.c",
 ]
+
+# Architecture-specific sources, in the order upstream lists them. Each one
+# replaces the generic source with the same base name.
+BUILTINS_ARCH_SRCS = {
+    "aarch64": [
+        "aarch64/fp_mode.c",
+        "cpu_model/aarch64.c",
+    ],
+    "x86_64": [
+        "cpu_model/x86.c",
+        "i386/fp_mode.c",
+        # x86's 80-bit long double.
+        "divxc3.c",
+        "extendxftf2.c",
+        "fixunsxfdi.c",
+        "fixunsxfsi.c",
+        "fixunsxfti.c",
+        "fixxfdi.c",
+        "fixxfti.c",
+        "floatdixf.c",
+        "floattixf.c",
+        "floatundixf.c",
+        "floatuntixf.c",
+        "mulxc3.c",
+        "powixf2.c",
+        "trunctfxf2.c",
+        "x86_64/floatdidf.c",
+        "x86_64/floatdisf.c",
+        "x86_64/floatdixf.c",
+        "x86_64/floatundidf.S",
+        "x86_64/floatundisf.S",
+        "x86_64/floatundixf.S",
+    ],
+}
+
+def _base_name(path: str) -> str:
+    return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+def builtins_sources(arch: str) -> list[str]:
+    """The builtins to build for `arch`, as filter_builtin_sources selects them.
+
+    Upstream keeps the last source with a given base name, so an
+    architecture's own implementation replaces the generic one, whichever
+    language it is written in.
+    """
+    arch_srcs = BUILTINS_ARCH_SRCS.get(arch)
+    if arch_srcs == None:
+        fail("compiler-rt builtins are not listed for " + arch)
+    selected = {}
+    for src in BUILTINS_GENERIC_SRCS + BUILTINS_BF16_SRCS + BUILTINS_TF_SRCS + arch_srcs:
+        selected[_base_name(src)] = src
+    return selected.values()

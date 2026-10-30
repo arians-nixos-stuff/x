@@ -25,7 +25,7 @@ load("@prelude//cxx:headers.bzl", "HeaderMode")
 load("@prelude//linking:link_info.bzl", "LinkStyle")
 load("@prelude//linking:lto.bzl", "LtoMode")
 load(":archive.bzl", "ArchiveInfo", "read_mtree_files")
-load(":compiler_rt_srcs.bzl", "BUILTINS_BF16_SRCS", "BUILTINS_GENERIC_SRCS", "BUILTINS_TF_SRCS")
+load(":compiler_rt_srcs.bzl", "builtins_sources")
 
 LlvmInfo = provider(fields = {
     "clang": RunInfo,
@@ -287,8 +287,17 @@ def _musl(ctx: AnalysisContext, llvm: LlvmInfo, triple: str, arch: str) -> (Arti
 
 _LSE_PATTERNS = ["cas", "swp", "ldadd", "ldclr", "ldeor", "ldset"]
 
-def _compiler_rt(ctx: AnalysisContext, llvm: LlvmInfo, triple: str, musl_include: Artifact) -> (Artifact, dict[str, Artifact]):
+# ELF control-flow protection marks. The builtins and the start files link into
+# every binary and linkers AND-merge GNU property notes, so an unmarked member
+# would strip the note from the final link.
+_CF_PROTECTION_FLAGS = {
+    "aarch64": ["-mbranch-protection=standard"],
+    "x86_64": ["-fcf-protection=full"],
+}
+
+def _compiler_rt(ctx: AnalysisContext, llvm: LlvmInfo, triple: str, arch: str, musl_include: Artifact) -> (Artifact, dict[str, Artifact]):
     builtins = ctx.attrs.compiler_rt[ArchiveInfo].dir.project("compiler-rt/lib/builtins")
+    cf_protection = _CF_PROTECTION_FLAGS[arch]
     base = cmd_args(
         _runtime_compile_flags(triple),
         "-nostdlibinc",
@@ -303,39 +312,36 @@ def _compiler_rt(ctx: AnalysisContext, llvm: LlvmInfo, triple: str, musl_include
         "-std=c11",
         "-fvisibility=hidden",
         "-fomit-frame-pointer",
-        "-mbranch-protection=standard",
+        cf_protection,
         "-DCOMPILER_RT_HAS_FLOAT16",
     )
 
-    srcs = [s for s in BUILTINS_GENERIC_SRCS if s != "fp_mode.c"] + BUILTINS_BF16_SRCS + BUILTINS_TF_SRCS + [
-        "aarch64/fp_mode.c",
-        "cpu_model/aarch64.c",
-    ]
     objects = []
-    for s in srcs:
+    for s in builtins_sources(arch):
         obj = ctx.actions.declare_output("compiler-rt/obj/" + s + ".o")
         _compile(ctx, llvm, builtins.project(s), obj, flags, s, "compiler_rt_compile")
         objects.append(obj)
 
-    # Outline atomics: lse.S once per operation, size and memory model.
-    lse = builtins.project("aarch64/lse.S")
-    for pat in _LSE_PATTERNS:
-        for size in [1, 2, 4, 8, 16]:
-            if size == 16 and pat != "cas":
-                continue
-            for model in [1, 2, 3, 4, 5]:
-                name = "lse_{}_{}_{}".format(pat, size, model)
-                obj = ctx.actions.declare_output("compiler-rt/obj/aarch64/{}.o".format(name))
-                lse_flags = cmd_args(
-                    base,
-                    "-nobuiltininc",
-                    "-mbranch-protection=standard",
-                    "-DL_" + pat,
-                    "-DSIZE={}".format(size),
-                    "-DMODEL={}".format(model),
-                )
-                _compile(ctx, llvm, lse, obj, lse_flags, name, "compiler_rt_compile")
-                objects.append(obj)
+    if arch == "aarch64":
+        # Outline atomics: lse.S once per operation, size and memory model.
+        lse = builtins.project("aarch64/lse.S")
+        for pat in _LSE_PATTERNS:
+            for size in [1, 2, 4, 8, 16]:
+                if size == 16 and pat != "cas":
+                    continue
+                for model in [1, 2, 3, 4, 5]:
+                    name = "lse_{}_{}_{}".format(pat, size, model)
+                    obj = ctx.actions.declare_output("compiler-rt/obj/aarch64/{}.o".format(name))
+                    lse_flags = cmd_args(
+                        base,
+                        "-nobuiltininc",
+                        cf_protection,
+                        "-DL_" + pat,
+                        "-DSIZE={}".format(size),
+                        "-DMODEL={}".format(model),
+                    )
+                    _compile(ctx, llvm, lse, obj, lse_flags, name, "compiler_rt_compile")
+                    objects.append(obj)
 
     builtins_a = ctx.actions.declare_output("compiler-rt/libclang_rt.builtins.a")
     _archive(ctx, llvm, builtins_a, objects, "libclang_rt.builtins.a")
@@ -345,7 +351,7 @@ def _compiler_rt(ctx: AnalysisContext, llvm: LlvmInfo, triple: str, musl_include
         "-std=c11",
         "-fPIC",
         "-fno-addrsig",
-        "-mbranch-protection=standard",
+        cf_protection,
         "-DCRT_HAS_INITFINI_ARRAY",
         "-DCRT_USE_FRAME_REGISTRY",
     )
@@ -370,7 +376,7 @@ def _target_runtimes_impl(ctx: AnalysisContext) -> list[Provider]:
     arch = triple.split("-", 1)[0]
 
     libc, include_dir, musl_crt = _musl(ctx, llvm, triple, arch)
-    builtins_a, rt_crt = _compiler_rt(ctx, llvm, triple, include_dir)
+    builtins_a, rt_crt = _compiler_rt(ctx, llvm, triple, arch, include_dir)
 
     crt_files = dict(musl_crt)
     crt_files.update(rt_crt)
@@ -409,7 +415,9 @@ target_runtimes = rule(
     impl = _target_runtimes_impl,
     attrs = {
         "compiler_rt": attrs.dep(providers = [ArchiveInfo]),
-        "llvm": attrs.dep(providers = [LlvmInfo]),
+        # The compiler runs where the actions run, so it is the exec platform
+        # that picks which prebuilt to use, not the triple being built for.
+        "llvm": attrs.exec_dep(providers = [LlvmInfo]),
         "musl": attrs.dep(providers = [ArchiveInfo]),
         "triple": attrs.string(),
     },

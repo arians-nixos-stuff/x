@@ -120,7 +120,7 @@ toolchain_alias(
     name = "cxx",
     actual = select({
         "DEFAULT": ":cxx-system",
-        "x//toolchains/llvm:musl": "x//toolchains/llvm:cxx-aarch64-linux-musl",
+        "x//toolchains/llvm:musl": "x//toolchains/llvm:cxx-musl",
     }),
     visibility = ["PUBLIC"],
 )

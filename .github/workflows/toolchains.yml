@@ -1,0 +1,66 @@
+name: toolchains
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  hermetic-llvm:
+    name: hermetic LLVM (${{ matrix.cpu }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cpu: x86_64
+            runs-on: ubuntu-latest
+            other-cpu: arm64
+          - cpu: arm64
+            runs-on: ubuntu-24.04-arm
+            other-cpu: x86_64
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+
+      # buck2 from the dotslash file upstream pins for the vendored tree, so it
+      # always matches the vendored prelude.
+      - name: Build and run the test program
+        run: |
+          nix shell --inputs-from . nixpkgs#dotslash --command \
+            dotslash third-party/buck2/bootstrap/buck2 build x//toolchains/llvm/tests:hello-runs
+
+      - name: Cross-compile for ${{ matrix.other-cpu }}
+        run: |
+          nix shell --inputs-from . nixpkgs#dotslash --command \
+            dotslash third-party/buck2/bootstrap/buck2 build x//toolchains/llvm/tests:hello \
+            --modifier 'prelude//cpu/constraints:cpu[${{ matrix.other-cpu }}]' \
+            --out hello-${{ matrix.other-cpu }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hello-${{ matrix.other-cpu }}
+          path: hello-${{ matrix.other-cpu }}
+
+  cross-compiled:
+    name: run cross-compiled (${{ matrix.cpu }})
+    needs: hermetic-llvm
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cpu: x86_64
+            runs-on: ubuntu-latest
+          - cpu: arm64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: hello-${{ matrix.cpu }}
+
+      - name: Run it
+        run: |
+          chmod +x hello-${{ matrix.cpu }}
+          ./hello-${{ matrix.cpu }}

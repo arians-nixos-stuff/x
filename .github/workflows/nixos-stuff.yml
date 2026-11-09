@@ -1,0 +1,79 @@
+name: nixos-stuff
+
+# homelab/ is published as arianvp/nixos-stuff, which nixbot deploys from.
+# Commits still land in the satellite too (dependabot), so this keeps both in
+# sync: satellite commits that main has not imported yet are proposed as an
+# import pull request, and once main contains everything the satellite has,
+# main is published to the satellite as a fast-forward.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-nixos-stuff
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Fetch the satellite through the mapping
+        run: |
+          nix develop --command josh remote add nixos-stuff https://github.com/arianvp/nixos-stuff \
+            "$(cat satellites/nixos-stuff.josh)" --no-forge
+          nix develop --command josh fetch -r nixos-stuff
+
+      - name: Check whether main has everything the satellite has
+        id: satellite
+        run: |
+          if git merge-base --is-ancestor refs/remotes/nixos-stuff/master HEAD; then
+            echo "imported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "imported=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Merge conflicts fail this step; resolve them by importing by hand
+      # (see satellites/README.md).
+      - name: Propose importing the satellite's new commits
+        if: steps.satellite.outputs.imported == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse refs/josh/remotes/nixos-stuff/master)
+          title="homelab: import arianvp/nixos-stuff ${sha:0:8}"
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              merge --no-ff -m "$title" refs/remotes/nixos-stuff/master
+          git push --force origin HEAD:refs/heads/homelab-import
+          if ! gh pr view homelab-import --json state --jq .state | grep -qx OPEN; then
+            gh pr create --head homelab-import --base main --title "$title" \
+              --body "Imports arianvp/nixos-stuff@$sha into homelab/. Merge it as a merge commit or fast-forward, not by rebasing, or the satellite and main stop sharing history."
+          fi
+
+      - name: Publish homelab/ to arianvp/nixos-stuff
+        if: steps.satellite.outputs.imported == 'true'
+        env:
+          TOKEN: ${{ secrets.NIXOS_STUFF_PUSH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::NIXOS_STUFF_PUSH_TOKEN is not set, not publishing"
+            exit 0
+          fi
+          inverse=":invert[$(grep -v '^ *#' satellites/nixos-stuff.josh)]"
+          projection=$(nix develop --command josh-filter "$inverse" HEAD --update refs/josh/publish)
+          git push "https://x-access-token:$TOKEN@github.com/arianvp/nixos-stuff" "$projection:refs/heads/master"
